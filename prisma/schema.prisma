@@ -1,0 +1,110 @@
+// VD Manager - Audiovisual Description Team Management System
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// User model with role-based access control
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  password  String
+  role      UserRole @default(MEMBER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  projects  Project[]
+  createdBy Announcement[]
+}
+
+enum UserRole {
+  ADMIN
+  MEMBER
+}
+
+// Project model for VD team assignments
+model Project {
+  id          String        @id @default(cuid())
+  name        String
+  seriesName  String
+  season      String
+  pageCount   Int
+  writingDate DateTime?
+  deadline    DateTime
+  status      ProjectStatus @default(NOT_STARTED)
+  progress    Int           @default(0)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  // Relations
+  assignedToId String
+  assignedTo   User   @relation(fields: [assignedToId], references: [id])
+}
+
+enum ProjectStatus {
+  DONE
+  IN_PROGRESS
+  NOT_STARTED
+}
+
+// Announcement model for homepage news
+model Announcement {
+  id        String   @id @default(cuid())
+  title     String
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  createdById String
+  createdBy   User   @relation(fields: [createdById], references: [id])
+}
+
+// Series model for Characters Database
+model Series {
+  id          String    @id @default(cuid())
+  name        String    @unique
+  description String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relations
+  seasons Season[]
+}
+
+// Season model
+model Season {
+  id        String     @id @default(cuid())
+  number    Int
+  year      Int?
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  // Relations
+  seriesId    String
+  series      Series     @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  characters  Character[]
+
+  @@unique([seriesId, number])
+}
+
+// Character model with photo support
+model Character {
+  id         String   @id @default(cuid())
+  name       String
+  actorName  String
+  photoUrl   String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Relations
+  seasonId String
+  season   Season   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+}
