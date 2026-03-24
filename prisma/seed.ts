@@ -1,172 +1,161 @@
-import { PrismaClient, UserRole, ProjectStatus } from '@prisma/client'
+import { PrismaClient, UserRole, JobRole, ProjectStatus, WorkflowStep } from '@prisma/client'
 import * as bcrypt from 'bcryptjs'
 
 const prisma = new PrismaClient()
 
 async function main() {
-  // Hash password for admin
-  const adminPassword = await bcrypt.hash('admin123', 10)
+  const hash = (pw: string) => bcrypt.hash(pw, 10)
 
-  // Create admin user
+  // Admin
   const admin = await prisma.user.upsert({
     where: { email: 'admin@vdmanager.com' },
-    update: { name: 'Administrateur' },
+    update: {},
     create: {
       email: 'admin@vdmanager.com',
       name: 'Administrateur',
-      password: adminPassword,
+      password: await hash('admin123'),
       role: UserRole.ADMIN,
+      jobRole: JobRole.REDACTEUR,
     },
   })
 
-  console.log('Created admin user:', admin.email)
-
-  // Hash password for team member
-  const memberPassword = await bcrypt.hash('member123', 10)
-
-  // Create team member user
-  const member = await prisma.user.upsert({
-    where: { email: 'member@vdmanager.com' },
-    update: { name: 'Membre de l\'équipe' },
+  // Membres équipe (rôles métier variés)
+  const outhman = await prisma.user.upsert({
+    where: { email: 'outhman@vdmanager.com' },
+    update: {},
     create: {
-      email: 'member@vdmanager.com',
-      name: 'Membre de l\'équipe',
-      password: memberPassword,
+      email: 'outhman@vdmanager.com',
+      name: 'Boudarraja Outhman',
+      password: await hash('member123'),
       role: UserRole.MEMBER,
+      jobRole: JobRole.REDACTEUR,
     },
   })
 
-  console.log('Created team member:', member.email)
+  const asmaa = await prisma.user.upsert({
+    where: { email: 'asmaa@vdmanager.com' },
+    update: {},
+    create: {
+      email: 'asmaa@vdmanager.com',
+      name: 'Asmaa',
+      password: await hash('member123'),
+      role: UserRole.MEMBER,
+      jobRole: JobRole.REDACTEUR,
+    },
+  })
 
-  // Create sample announcements
+  const driss = await prisma.user.upsert({
+    where: { email: 'driss@vdmanager.com' },
+    update: {},
+    create: {
+      email: 'driss@vdmanager.com',
+      name: 'Driss BAKKARI',
+      password: await hash('member123'),
+      role: UserRole.MEMBER,
+      jobRole: JobRole.TECH_SON,
+    },
+  })
+
+  const kawtar = await prisma.user.upsert({
+    where: { email: 'kawtar@vdmanager.com' },
+    update: {},
+    create: {
+      email: 'kawtar@vdmanager.com',
+      name: 'Kawtar BOUAZZAOUI',
+      password: await hash('member123'),
+      role: UserRole.MEMBER,
+      jobRole: JobRole.NARRATEUR,
+    },
+  })
+
+  console.log('✅ Users created')
+
+  // Announcements
   await prisma.announcement.deleteMany()
-  
-  const announcement1 = await prisma.announcement.create({
-    data: {
-      title: 'Bienvenue sur la plateforme VD Manager',
-      content: 'Nous sommes ravis de lancer notre nouvelle plateforme interne pour la gestion des projets d\'audiodescription. Restez à l\'écoute pour plus de mises à jour !',
-      createdById: admin.id,
-    },
-  })
-
-  console.log('Created announcement:', announcement1.title)
-
-  const announcement2 = await prisma.announcement.create({
-    data: {
-      title: 'Nouvelle saison bientôt',
-      content: 'La nouvelle saison débutera la semaine prochaine. Veuillez consulter vos projets assignés et les échéances.',
-      createdById: admin.id,
-    },
-  })
-
-  console.log('Created announcement:', announcement2.title)
-
-  // Create sample series for characters database
-  const series1 = await prisma.series.upsert({
-    where: { name: 'The Crown' },
-    update: { description: 'Un drame historique sur le règne de la reine Elizabeth II' },
-    create: {
-      name: 'The Crown',
-      description: 'Un drame historique sur le règne de la reine Elizabeth II',
-    },
-  })
-
-  console.log('Created series:', series1.name)
-
-  const season1 = await prisma.season.upsert({
-    where: {
-      seriesId_number: {
-        seriesId: series1.id,
-        number: 1,
-      },
-    },
-    update: { year: 2016 },
-    create: {
-      seriesId: series1.id,
-      number: 1,
-      year: 2016,
-    },
-  })
-
-  console.log('Created season:', season1.number)
-
-  // Add sample characters
-  await prisma.character.deleteMany({ where: { seasonId: season1.id } })
-  
-  await prisma.character.createMany({
+  await prisma.announcement.createMany({
     data: [
       {
-        name: 'Reine Elizabeth II',
-        actorName: 'Claire Foy',
-        seasonId: season1.id,
+        title: 'Bienvenue sur la nouvelle plateforme VDM',
+        content: 'La plateforme a été entièrement repensée. Vous pouvez maintenant pointer votre présence, suivre vos projets et consulter vos performances.',
+        createdById: admin.id,
       },
       {
-        name: 'Prince Philip',
-        actorName: 'Matt Smith',
-        seasonId: season1.id,
-      },
-      {
-        name: 'Princesse Margaret',
-        actorName: 'Vanessa Kirby',
-        seasonId: season1.id,
+        title: 'Rappel : délais semaine du 24 mars',
+        content: 'Plusieurs projets arrivent à échéance cette semaine. Merci de mettre à jour vos statuts et d\'indiquer le nombre de pages traitées.',
+        createdById: admin.id,
       },
     ],
   })
+  console.log('✅ Announcements created')
 
-  console.log('Created sample characters')
-
-  // Create sample projects for the team member
-  await prisma.project.deleteMany({ where: { assignedToId: member.id } })
-  
+  // Sample projects
+  await prisma.project.deleteMany()
   const today = new Date()
-  const nextWeek = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000)
-  const twoWeeks = new Date(today.getTime() + 14 * 24 * 60 * 60 * 1000)
+  const d = (days: number) => new Date(today.getTime() + days * 86400000)
 
   await prisma.project.createMany({
     data: [
       {
-        name: 'Description Épisode 1',
-        seriesName: 'The Crown',
-        season: 'Saison 1',
-        pageCount: 45,
-        writingDate: new Date(),
-        deadline: nextWeek,
+        name: 'Elsbeth S2E20',
+        seriesName: 'Elsbeth',
+        season: '2',
+        episodeNumber: '220',
+        materialRef: 'G04046',
+        workflowStep: WorkflowStep.REDACTION,
         status: ProjectStatus.IN_PROGRESS,
-        progress: 60,
-        assignedToId: member.id,
+        deadline: d(3),
+        redacteurId: outhman.id,
+        pageCount: null,
       },
       {
-        name: 'Description Épisode 2',
-        seriesName: 'The Crown',
-        season: 'Saison 1',
-        pageCount: 52,
-        writingDate: null,
-        deadline: twoWeeks,
+        name: 'CSI Miami S5E17',
+        seriesName: 'CSI Miami',
+        season: '5',
+        episodeNumber: '517',
+        materialRef: 'G05234',
+        workflowStep: WorkflowStep.REDACTION,
         status: ProjectStatus.NOT_STARTED,
-        progress: 0,
-        assignedToId: member.id,
+        deadline: d(5),
+        redacteurId: asmaa.id,
       },
       {
-        name: 'Description Épisode 3',
-        seriesName: 'The Crown',
-        season: 'Saison 1',
-        pageCount: 48,
-        writingDate: new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000),
-        deadline: new Date(today.getTime() - 1 * 24 * 60 * 60 * 1000),
+        name: 'Le bloc S17E38',
+        seriesName: 'Le bloc',
+        season: '17',
+        episodeNumber: '1738',
+        materialRef: 'G04966',
+        workflowStep: WorkflowStep.MIXAGE,
+        status: ProjectStatus.IN_PROGRESS,
+        deadline: d(2),
+        redacteurId: outhman.id,
+        techSonId: driss.id,
+        narratorId: kawtar.id,
+        pageCount: 12,
+        writingDate: d(-3),
+      },
+      {
+        name: 'The Walking Dead Dead City S1E5',
+        seriesName: 'The Walking Dead Dead City',
+        season: '1',
+        episodeNumber: '5',
+        materialRef: 'G01640',
+        workflowStep: WorkflowStep.TERMINE,
         status: ProjectStatus.DONE,
-        progress: 100,
-        assignedToId: member.id,
+        deadline: d(-1),
+        redacteurId: asmaa.id,
+        techSonId: driss.id,
+        pageCount: 15,
+        writingDate: d(-10),
+        mixingDate: d(-2),
+        durationMin: 52.5,
       },
     ],
   })
-
-  console.log('Created sample projects')
+  console.log('✅ Projects created')
 }
 
 main()
-  .then(async () => {
-    await prisma.$disconnect()
-  })
+  .then(() => prisma.$disconnect())
   .catch(async (e) => {
     console.error(e)
     await prisma.$disconnect()

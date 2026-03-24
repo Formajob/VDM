@@ -5,23 +5,33 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
-// User model with role-based access control
+// ─────────────────────────────────────────────
+// USERS
+// ─────────────────────────────────────────────
+
 model User {
   id        String   @id @default(cuid())
   email     String   @unique
   name      String
   password  String
   role      UserRole @default(MEMBER)
+  jobRole   JobRole  @default(REDACTEUR)
+  avatar    String?
+  isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   // Relations
-  projects  Project[]
-  createdBy Announcement[]
+  projectsAsRedacteur Project[]      @relation("Redacteur")
+  projectsAsTechSon   Project[]      @relation("TechSon")
+  projectsAsNarrator  Project[]      @relation("Narrator")
+  announcements       Announcement[]
+  attendances         Attendance[]
 }
 
 enum UserRole {
@@ -29,82 +39,149 @@ enum UserRole {
   MEMBER
 }
 
-// Project model for VD team assignments
-model Project {
-  id          String        @id @default(cuid())
-  name        String
-  seriesName  String
-  season      String
-  pageCount   Int
-  writingDate DateTime?
-  deadline    DateTime
-  status      ProjectStatus @default(NOT_STARTED)
-  progress    Int           @default(0)
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+enum JobRole {
+  REDACTEUR
+  NARRATEUR
+  TECH_SON
+  LIVREUR
+}
 
-  // Relations
-  assignedToId String
-  assignedTo   User   @relation(fields: [assignedToId], references: [id])
+// ─────────────────────────────────────────────
+// PROJECTS
+// ─────────────────────────────────────────────
+
+model Project {
+  id            String        @id @default(cuid())
+  name          String
+  seriesName    String
+  season        String
+  episodeNumber String?
+  materialRef   String?
+
+  workflowStep  WorkflowStep  @default(REDACTION)
+  status        ProjectStatus @default(NOT_STARTED)
+
+  pageCount     Int?
+  writingDate   DateTime?
+  durationMin   Float?
+
+  mixingDate    DateTime?
+  narratorName  String?
+  isAINarrator  Boolean       @default(false)
+
+  deadline      DateTime
+  comment       String?
+
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  redacteurId   String?
+  redacteur     User?         @relation("Redacteur", fields: [redacteurId], references: [id])
+
+  techSonId     String?
+  techSon       User?         @relation("TechSon", fields: [techSonId], references: [id])
+
+  narratorId    String?
+  narrator      User?         @relation("Narrator", fields: [narratorId], references: [id])
+}
+
+enum WorkflowStep {
+  REDACTION
+  NARRATION
+  MIXAGE
+  LIVRAISON
+  TERMINE
 }
 
 enum ProjectStatus {
-  DONE
-  IN_PROGRESS
   NOT_STARTED
+  IN_PROGRESS
+  DONE
+  CANCELLED
 }
 
-// Announcement model for homepage news
+// ─────────────────────────────────────────────
+// ATTENDANCE (Pointage)
+// ─────────────────────────────────────────────
+
+model Attendance {
+  id          String           @id @default(cuid())
+  userId      String
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  status      AttendanceStatus
+  startedAt   DateTime         @default(now())
+  endedAt     DateTime?
+  durationMin Float?
+  note        String?
+
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@index([userId])
+  @@index([startedAt])
+}
+
+enum AttendanceStatus {
+  EN_PRODUCTION
+  PAUSE
+  REUNION
+  FORMATION
+  FIN_DE_SHIFT
+  ABSENT
+}
+
+// ─────────────────────────────────────────────
+// ANNOUNCEMENTS
+// ─────────────────────────────────────────────
+
 model Announcement {
-  id        String   @id @default(cuid())
-  title     String
-  content   String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String   @id @default(cuid())
+  title       String
+  content     String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  // Relations
   createdById String
-  createdBy   User   @relation(fields: [createdById], references: [id])
+  createdBy   User     @relation(fields: [createdById], references: [id])
 }
 
-// Series model for Characters Database
+// ─────────────────────────────────────────────
+// CHARACTERS DATABASE
+// ─────────────────────────────────────────────
+
 model Series {
-  id          String    @id @default(cuid())
-  name        String    @unique
+  id          String   @id @default(cuid())
+  name        String   @unique
   description String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  // Relations
-  seasons Season[]
+  seasons     Season[]
 }
 
-// Season model
 model Season {
-  id        String     @id @default(cuid())
+  id        String      @id @default(cuid())
   number    Int
   year      Int?
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
 
-  // Relations
-  seriesId    String
-  series      Series     @relation(fields: [seriesId], references: [id], onDelete: Cascade)
-  characters  Character[]
+  seriesId   String
+  series     Series      @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  characters Character[]
 
   @@unique([seriesId, number])
 }
 
-// Character model with photo support
 model Character {
-  id         String   @id @default(cuid())
-  name       String
-  actorName  String
-  photoUrl   String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id        String   @id @default(cuid())
+  name      String
+  actorName String
+  photoUrl  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  // Relations
-  seasonId String
-  season   Season   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  seasonId  String
+  season    Season   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
 }
