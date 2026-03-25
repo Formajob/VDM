@@ -1,32 +1,28 @@
 import { NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { supabaseAdmin } from '@/lib/supabase'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 
-// GET all announcements (public)
+// GET all announcements
 export async function GET() {
   try {
-    const announcements = await db.announcement.findMany({
-      include: {
-        createdBy: {
-          select: {
-            name: true,
-          },
-        },
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-      take: 10,
-    })
+    const { data, error } = await supabaseAdmin
+      .from('Announcement')
+      .select(`
+        *,
+        createdBy:User!Announcement_createdById_fkey (
+          name
+        )
+      `)
+      .order('createdAt', { ascending: false })
+      .limit(10)
 
-    return NextResponse.json(announcements)
+    if (error) throw error
+
+    return NextResponse.json(data)
   } catch (error) {
     console.error('Error fetching announcements:', error)
-    return NextResponse.json(
-      { error: 'Failed to fetch announcements' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Failed to fetch announcements' }, { status: 500 })
   }
 }
 
@@ -46,33 +42,29 @@ export async function POST(request: Request) {
     const { title, content } = body
 
     if (!title || !content) {
-      return NextResponse.json(
-        { error: 'Title and content are required' },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: 'Title and content are required' }, { status: 400 })
     }
 
-    const announcement = await db.announcement.create({
-      data: {
+    const { data, error } = await supabaseAdmin
+      .from('Announcement')
+      .insert({
         title,
         content,
         createdById: (session.user as any).id,
-      },
-      include: {
-        createdBy: {
-          select: {
-            name: true,
-          },
-        },
-      },
-    })
+      })
+      .select(`
+        *,
+        createdBy:User!Announcement_createdById_fkey (
+          name
+        )
+      `)
+      .single()
 
-    return NextResponse.json(announcement, { status: 201 })
+    if (error) throw error
+
+    return NextResponse.json(data, { status: 201 })
   } catch (error) {
     console.error('Error creating announcement:', error)
-    return NextResponse.json(
-      { error: 'Failed to create announcement' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Failed to create announcement' }, { status: 500 })
   }
 }

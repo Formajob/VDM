@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { supabaseAdmin } from '@/lib/supabase'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import * as bcrypt from 'bcryptjs'
@@ -19,36 +19,25 @@ export async function GET(
       )
     }
 
-    const user = await db.user.findUnique({
-      where: { id: params.id },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        createdAt: true,
-        _count: {
-          select: {
-            projects: true,
-          },
-        },
-      },
-    })
+    const { data: user, error } = await supabaseAdmin
+      .from('User')
+      .select('id, email, name, role, jobRole, isActive, createdAt')
+      .eq('id', params.id)
+      .single()
 
-    if (!user) {
-      return NextResponse.json(
-        { error: 'User not found' },
-        { status: 404 }
-      )
+    if (error || !user) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    return NextResponse.json(user)
+    const { count } = await supabaseAdmin
+      .from('Project')
+      .select('*', { count: 'exact', head: true })
+      .eq('assignedToId', params.id)
+
+    return NextResponse.json({ ...user, _count: { projects: count ?? 0 } })
   } catch (error) {
     console.error('Error fetching user:', error)
-    return NextResponse.json(
-      { error: 'Failed to fetch user' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Failed to fetch user' }, { status: 500 })
   }
 }
 
@@ -68,35 +57,30 @@ export async function PATCH(
     }
 
     const body = await request.json()
-    const { name, role, password } = body
+    const { name, role, jobRole, isActive, password } = body
 
     const updateData: any = {}
-
     if (name !== undefined) updateData.name = name
     if (role !== undefined) updateData.role = role
+    if (jobRole !== undefined) updateData.jobRole = jobRole
+    if (isActive !== undefined) updateData.isActive = isActive
     if (password !== undefined) {
       updateData.password = await bcrypt.hash(password, 10)
     }
 
-    const user = await db.user.update({
-      where: { id: params.id },
-      data: updateData,
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        createdAt: true,
-      },
-    })
+    const { data, error } = await supabaseAdmin
+      .from('User')
+      .update(updateData)
+      .eq('id', params.id)
+      .select('id, email, name, role, jobRole, isActive, createdAt')
+      .single()
 
-    return NextResponse.json(user)
+    if (error) throw error
+
+    return NextResponse.json(data)
   } catch (error) {
     console.error('Error updating user:', error)
-    return NextResponse.json(
-      { error: 'Failed to update user' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Failed to update user' }, { status: 500 })
   }
 }
 
@@ -115,16 +99,16 @@ export async function DELETE(
       )
     }
 
-    await db.user.delete({
-      where: { id: params.id },
-    })
+    const { error } = await supabaseAdmin
+      .from('User')
+      .delete()
+      .eq('id', params.id)
+
+    if (error) throw error
 
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error('Error deleting user:', error)
-    return NextResponse.json(
-      { error: 'Failed to delete user' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Failed to delete user' }, { status: 500 })
   }
 }

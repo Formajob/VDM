@@ -1,75 +1,56 @@
 import { NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { supabaseAdmin } from '@/lib/supabase'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 
-// GET admin statistics (admin only)
 export async function GET() {
   try {
     const session = await getServerSession(authOptions)
-
     if (!session || (session.user as any).role !== 'ADMIN') {
-      return NextResponse.json(
-        { error: 'Unauthorized. Admin access required.' },
-        { status: 401 }
-      )
+      return NextResponse.json({ error: 'Unauthorized. Admin access required.' }, { status: 401 })
     }
 
+    const now = new Date().toISOString()
+
     const [
-      totalProjects,
-      completedProjects,
-      inProgressProjects,
-      notStartedProjects,
-      totalUsers,
-      totalSeries,
-      totalCharacters,
-      recentProjects,
+      { count: totalProjects },
+      { count: completedProjects },
+      { count: inProgressProjects },
+      { count: notStartedProjects },
+      { count: totalUsers },
+      { count: totalSeries },
+      { count: totalCharacters },
+      { count: lateProjects },
+      { data: recentProjects },
     ] = await Promise.all([
-      db.project.count(),
-      db.project.count({ where: { status: 'DONE' } }),
-      db.project.count({ where: { status: 'IN_PROGRESS' } }),
-      db.project.count({ where: { status: 'NOT_STARTED' } }),
-      db.user.count(),
-      db.series.count(),
-      db.character.count(),
-      db.project.findMany({
-        take: 5,
-        orderBy: { createdAt: 'desc' },
-        include: {
-          assignedTo: {
-            select: {
-              name: true,
-            },
-          },
-        },
-      }),
+      supabaseAdmin.from('Project').select('*', { count: 'exact', head: true }),
+      supabaseAdmin.from('Project').select('*', { count: 'exact', head: true }).eq('status', 'DONE'),
+      supabaseAdmin.from('Project').select('*', { count: 'exact', head: true }).eq('status', 'IN_PROGRESS'),
+      supabaseAdmin.from('Project').select('*', { count: 'exact', head: true }).eq('status', 'NOT_STARTED'),
+      supabaseAdmin.from('User').select('*', { count: 'exact', head: true }),
+      supabaseAdmin.from('Series').select('*', { count: 'exact', head: true }),
+      supabaseAdmin.from('Character').select('*', { count: 'exact', head: true }),
+      supabaseAdmin.from('Project').select('*', { count: 'exact', head: true }).lt('deadline', now).neq('status', 'DONE'),
+      supabaseAdmin
+        .from('Project')
+        .select(`*, assignedTo:User!Project_assignedToId_fkey (name)`)
+        .order('createdAt', { ascending: false })
+        .limit(5),
     ])
 
-    // Calculate late projects
-    const now = new Date()
-    const lateProjects = await db.project.count({
-      where: {
-        deadline: { lt: now },
-        status: { not: 'DONE' },
-      },
-    })
-
     return NextResponse.json({
-      totalProjects,
-      completedProjects,
-      inProgressProjects,
-      notStartedProjects,
-      lateProjects,
-      totalUsers,
-      totalSeries,
-      totalCharacters,
-      recentProjects,
+      totalProjects: totalProjects ?? 0,
+      completedProjects: completedProjects ?? 0,
+      inProgressProjects: inProgressProjects ?? 0,
+      notStartedProjects: notStartedProjects ?? 0,
+      lateProjects: lateProjects ?? 0,
+      totalUsers: totalUsers ?? 0,
+      totalSeries: totalSeries ?? 0,
+      totalCharacters: totalCharacters ?? 0,
+      recentProjects: recentProjects ?? [],
     })
   } catch (error) {
     console.error('Error fetching admin stats:', error)
-    return NextResponse.json(
-      { error: 'Failed to fetch statistics' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Failed to fetch statistics' }, { status: 500 })
   }
 }
