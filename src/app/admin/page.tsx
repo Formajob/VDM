@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
@@ -39,6 +40,8 @@ import {
   Zap,
 } from 'lucide-react'
 import { useDemoMode, DemoUser } from '@/hooks/useDemoMode'
+
+import AdminAttendanceView from '@/components/AdminAttendanceView'
 
 interface User {
   id: string
@@ -457,6 +460,8 @@ export default function AdminPage() {
             </div>
           </TabsContent>
         </Tabs>
+
+        <AdminAttendanceView />
       </main>
     </div>
   )
