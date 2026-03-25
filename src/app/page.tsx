@@ -4,13 +4,25 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { Calendar, FileText, Users, Lock, Megaphone, Play, Zap } from 'lucide-react'
 import { Suspense } from 'react'
+import { supabaseAdmin } from '@/lib/supabase'
 
 async function getAnnouncements() {
-  const res = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/announcements`, {
-    cache: 'no-store',
-  })
-  if (!res.ok) return []
-  return res.json()
+  const { data, error } = await supabaseAdmin
+    .from('Announcement')
+    .select(`
+      *,
+      createdBy:User!Announcement_createdById_fkey (
+        name
+      )
+    `)
+    .order('createdAt', { ascending: false })
+    .limit(10)
+
+  if (error) {
+    console.error('Error fetching announcements:', error)
+    return []
+  }
+  return data
 }
 
 function AnnouncementsList({ announcements }: { announcements: any[] }) {
