@@ -7,9 +7,7 @@ import { authOptions } from '@/lib/auth'
 export async function GET(request: Request) {
   try {
     const session = await getServerSession(authOptions)
-    if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const { searchParams } = new URL(request.url)
     const status = searchParams.get('status')
@@ -22,21 +20,22 @@ export async function GET(request: Request) {
       .from('Project')
       .select(`
         *,
-        assignedTo:User!Project_assignedToId_fkey (
-          id,
-          name,
-          email
-        )
+        redacteur:User!Project_redacteurId_fkey (id, name, email),
+        techSon:User!Project_techSonId_fkey (id, name, email),
+        narrator:User!Project_narratorId_fkey (id, name, email)
       `)
 
+    // Members only see projects where they are assigned in any role
     if (userRole !== 'ADMIN') {
-      query = query.eq('assignedToId', userId)
+      query = query.or(`redacteurId.eq.${userId},techSonId.eq.${userId},narratorId.eq.${userId}`)
     }
 
+    // Filter by status
     if (status && status !== 'ALL') {
       query = query.eq('status', status)
     }
 
+    // Sort
     if (sortBy === 'deadline') {
       query = query.order('deadline', { ascending: true })
     } else if (sortBy === 'name') {
@@ -64,29 +63,38 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json()
-    const { name, seriesName, season, pageCount, writingDate, deadline, status, progress, assignedToId } = body
+    const {
+      name, seriesName, season, episodeNumber, materialRef,
+      workflowStep, status, pageCount, writingDate, durationMin,
+      mixingDate, narratorName, isAINarrator, deadline, comment,
+      redacteurId, techSonId, narratorId, projectCode, startDate,
+      broadcastChannel, projectType, clientName, language, totalEpisodes, notes
+    } = body
 
-    if (!name || !seriesName || !season || !pageCount || !deadline || !assignedToId) {
+    if (!name || !deadline) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
     }
 
     const { data, error } = await supabaseAdmin
       .from('Project')
       .insert({
-        name, seriesName, season, pageCount,
-        writingDate: writingDate ? new Date(writingDate).toISOString() : null,
+        name, seriesName, season, episodeNumber, materialRef,
+        workflowStep: workflowStep || 'REDACTION',
+        status: status || 'PAS_ENCORE',
+        pageCount, writingDate, durationMin, mixingDate,
+        narratorName, isAINarrator,
         deadline: new Date(deadline).toISOString(),
-        status: status || 'NOT_STARTED',
-        progress: progress || 0,
-        assignedToId,
+        comment, redacteurId, techSonId, narratorId,
+        projectCode, startDate, broadcastChannel, projectType,
+        clientName, language, totalEpisodes, notes,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       })
       .select(`
         *,
-        assignedTo:User!Project_assignedToId_fkey (
-          id,
-          name,
-          email
-        )
+        redacteur:User!Project_redacteurId_fkey (id, name, email),
+        techSon:User!Project_techSonId_fkey (id, name, email),
+        narrator:User!Project_narratorId_fkey (id, name, email)
       `)
       .single()
 

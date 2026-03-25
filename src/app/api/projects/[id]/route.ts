@@ -3,6 +3,13 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 
+const SELECT = `
+  *,
+  redacteur:User!Project_redacteurId_fkey (id, name, email),
+  techSon:User!Project_techSonId_fkey (id, name, email),
+  narrator:User!Project_narratorId_fkey (id, name, email)
+`
+
 // GET single project
 export async function GET(req: Request, { params }: { params: { id: string } }) {
   try {
@@ -11,14 +18,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
 
     const { data, error } = await supabaseAdmin
       .from('Project')
-      .select(`
-        *,
-        assignedTo:User!Project_assignedToId_fkey (
-          id,
-          name,
-          email
-        )
-      `)
+      .select(SELECT)
       .eq('id', params.id)
       .single()
 
@@ -32,7 +32,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   }
 }
 
-// PATCH update project status/progress
+// PATCH update project
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   try {
     const session = await getServerSession(authOptions)
@@ -42,20 +42,12 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
     const { data, error } = await supabaseAdmin
       .from('Project')
-      .update(body)
+      .update({ ...body, updatedAt: new Date().toISOString() })
       .eq('id', params.id)
-      .select(`
-        *,
-        assignedTo:User!Project_assignedToId_fkey (
-          id,
-          name,
-          email
-        )
-      `)
+      .select(SELECT)
       .single()
 
     if (error) throw error
-
     return NextResponse.json(data)
   } catch (error) {
     console.error('Error updating project:', error)
@@ -77,7 +69,6 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
       .eq('id', params.id)
 
     if (error) throw error
-
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error('Error deleting project:', error)
