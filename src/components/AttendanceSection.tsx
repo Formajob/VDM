@@ -133,7 +133,7 @@ function formatDuration(minutes: number): string {
 }
 
 function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+  return new Date(iso + 'Z').toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
 }
 
 function formatMinutes(min: number | null): string {
@@ -176,7 +176,7 @@ export default function AttendanceSection({ userId }: { userId: string }) {
     return 
   }
 
-  const start = new Date(activeRecord.startedAt)
+  const start = new Date(activeRecord.startedAt + 'Z')
 
   const update = () => {
     const now = new Date()
