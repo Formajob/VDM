@@ -4,6 +4,8 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { nanoid } from 'nanoid'
 
+
+
 // GET attendance records
 export async function GET(request: Request) {
   try {

@@ -171,15 +171,29 @@ export default function AttendanceSection({ userId }: { userId: string }) {
 
   // Live timer
   useEffect(() => {
-    if (!activeRecord) { setElapsed(0); return }
-    const update = () => {
-      const diff = (Date.now() - new Date(activeRecord.startedAt).getTime()) / 60000
-      setElapsed(diff)
-    }
-    update()
-    const interval = setInterval(update, 1000)
-    return () => clearInterval(interval)
-  }, [activeRecord])
+  if (!activeRecord) { 
+    setElapsed(0)
+    return 
+  }
+
+  const start = new Date(activeRecord.startedAt)
+
+  const update = () => {
+    const now = new Date()
+
+    // ⚡ correction timezone
+    const diffMs = now.getTime() - start.getTime()
+
+    const diffMin = diffMs / 60000
+
+    setElapsed(diffMin > 0 ? diffMin : 0)
+  }
+
+  update()
+  const interval = setInterval(update, 1000)
+
+  return () => clearInterval(interval)
+}, [activeRecord])
 
   const handleStatus = async (status: AttendanceStatus | 'DEPART') => {
     setLoading(true)
