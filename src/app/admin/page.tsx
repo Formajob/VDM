@@ -43,6 +43,8 @@ import { useDemoMode, DemoUser } from '@/hooks/useDemoMode'
 
 import AdminAttendanceView from '@/components/AdminAttendanceView'
 
+
+
 interface User {
   id: string
   email: string
@@ -166,6 +168,7 @@ export default function AdminPage() {
   if ((status === 'loading' && !isDemo) || loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 via-white to-purple-50 dark:from-slate-950 dark:via-indigo-950 dark:to-purple-950">
+       
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-4 border-indigo-200 border-t-indigo-600 mx-auto"></div>
           <p className="mt-4 text-muted-foreground">Chargement...</p>
@@ -181,11 +184,14 @@ export default function AdminPage() {
       {/* Header */}
       <header className="border-b bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm sticky top-0 z-50">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
+
+          
           <div className="flex items-center gap-4">
             <Button variant="ghost" size="icon" onClick={() => router.push('/dashboard')} className="hover:bg-indigo-50 dark:hover:bg-indigo-950/30">
               <ArrowLeft className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
             </Button>
             <h1 className="text-2xl font-bold bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">Administration VDM</h1>
+        
           </div>
           <Button onClick={() => router.push('/characters')} className="gap-2 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white shadow-lg shadow-indigo-500/25">
             <Database className="h-4 w-4" />
@@ -198,6 +204,7 @@ export default function AdminPage() {
         {/* Statistics */}
         <section>
           <h2 className="text-2xl font-bold mb-4 bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">Vue d'ensemble</h2>
+        
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             <Card className="border-2 border-indigo-200 hover:border-indigo-400 dark:border-indigo-800 dark:hover:border-indigo-600 transition-all hover:shadow-lg hover:shadow-indigo-500/10">
               <CardHeader className="pb-2">
@@ -460,8 +467,8 @@ export default function AdminPage() {
             </div>
           </TabsContent>
         </Tabs>
-
-        <AdminAttendanceView />
+<AdminAttendanceView />
+        
       </main>
     </div>
   )
