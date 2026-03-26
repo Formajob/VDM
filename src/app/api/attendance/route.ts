@@ -4,8 +4,6 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { nanoid } from 'nanoid'
 
-
-
 // GET attendance records
 export async function GET(request: Request) {
   try {
@@ -14,8 +12,10 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url)
     const userId = searchParams.get('userId')
-    const date = searchParams.get('date') // YYYY-MM-DD
-    const all = searchParams.get('all') // admin: fetch all users
+    const date = searchParams.get('date')
+    const dateFrom = searchParams.get('dateFrom')
+    const dateTo = searchParams.get('dateTo')
+    const all = searchParams.get('all')
 
     const userRole = (session.user as any).role
     const sessionUserId = (session.user as any).id
@@ -25,23 +25,21 @@ export async function GET(request: Request) {
       .select(`
         *,
         user:User!Attendance_userId_fkey (
-          id,
-          name,
-          email,
-          jobRole
+          id, name, email, jobRole
         )
       `)
-      .order('startedAt', { ascending: false })
+      .order('startedAt', { ascending: true })
 
-    // Admin can see all, member sees only their own
     if (userRole !== 'ADMIN' || !all) {
       query = query.eq('userId', userId || sessionUserId)
+    } else if (userId) {
+      query = query.eq('userId', userId)
     }
 
     if (date) {
-      const start = `${date}T00:00:00`
-      const end = `${date}T23:59:59`
-      query = query.gte('startedAt', start).lte('startedAt', end)
+      query = query.gte('startedAt', `${date}T00:00:00`).lte('startedAt', `${date}T23:59:59`)
+    } else if (dateFrom && dateTo) {
+      query = query.gte('startedAt', `${dateFrom}T00:00:00`).lte('startedAt', `${dateTo}T23:59:59`)
     }
 
     const { data, error } = await query
@@ -54,29 +52,59 @@ export async function GET(request: Request) {
   }
 }
 
-// POST - start a new status
+// POST - start a new status (member) or add manual entry (admin)
 export async function POST(request: Request) {
   try {
     const session = await getServerSession(authOptions)
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const sessionUserId = (session.user as any).id
+    const userRole = (session.user as any).role
     const body = await request.json()
-    const { status, note } = body
+    const { status, note, targetUserId, startedAt, endedAt } = body
 
-    // Close any currently active record (no endedAt)
+    // Admin can post for another user with manual times
+    const isAdminManual = userRole === 'ADMIN' && targetUserId && startedAt
+    const affectedUserId = isAdminManual ? targetUserId : sessionUserId
+
+    if (isAdminManual) {
+      // Manual insert — no auto-close logic, just insert directly
+      const start = new Date(startedAt)
+      const end = endedAt ? new Date(endedAt) : null
+      const durationMin = end ? parseFloat(((end.getTime() - start.getTime()) / 60000).toFixed(2)) : null
+
+      const { data, error } = await supabaseAdmin
+        .from('Attendance')
+        .insert({
+          id: nanoid(),
+          userId: affectedUserId,
+          status,
+          startedAt: start.toISOString(),
+          endedAt: end ? end.toISOString() : null,
+          durationMin,
+          note: note || null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        })
+        .select(`*, user:User!Attendance_userId_fkey (id, name, email, jobRole)`)
+        .single()
+
+      if (error) throw error
+      return NextResponse.json(data, { status: 201 })
+    }
+
+    // Normal member flow — close active record first
     const { data: active } = await supabaseAdmin
       .from('Attendance')
       .select('*')
-      .eq('userId', sessionUserId)
+      .eq('userId', affectedUserId)
       .is('endedAt', null)
-      .single()
+      .maybeSingle()
 
     if (active) {
       const now = new Date()
-      const started = new Date(active.startedAt)
+      const started = new Date(active.startedAt + 'Z')
       const durationMin = (now.getTime() - started.getTime()) / 60000
-
       await supabaseAdmin
         .from('Attendance')
         .update({
@@ -87,37 +115,26 @@ export async function POST(request: Request) {
         .eq('id', active.id)
     }
 
-    // If status is DEPART, don't create a new record
     if (status === 'DEPART') {
       return NextResponse.json({ departed: true })
     }
 
-    // Create new record
     const now = new Date()
     const { data, error } = await supabaseAdmin
       .from('Attendance')
       .insert({
         id: nanoid(),
-        userId: sessionUserId,
+        userId: affectedUserId,
         status,
         startedAt: now.toISOString(),
         note: note || null,
         createdAt: now.toISOString(),
         updatedAt: now.toISOString(),
       })
-      .select(`
-        *,
-        user:User!Attendance_userId_fkey (
-          id,
-          name,
-          email,
-          jobRole
-        )
-      `)
+      .select(`*, user:User!Attendance_userId_fkey (id, name, email, jobRole)`)
       .single()
 
     if (error) throw error
-
     return NextResponse.json(data, { status: 201 })
   } catch (error) {
     console.error('Error creating attendance:', error)
