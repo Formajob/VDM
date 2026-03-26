@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import DashboardLayout from '@/components/layout/DashboardLayout'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import AdminAttendanceView from '@/components/AdminAttendanceView'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
@@ -155,15 +156,20 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {/* Attendance Live Widget */}
-        {!isDemo && user?.id && (
-          <div>
-            <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-              <Clock className="h-5 w-5 text-indigo-500" />Présence en direct
-            </h2>
-            <AttendanceSection userId={user.id} />
-          </div>
-        )}
+       {/* Attendance Live Widget */}
+{!isDemo && user?.id && (
+  <div>
+    <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
+      <Clock className="h-5 w-5 text-indigo-500" />
+      {isAdmin ? "Présence de l'équipe (Temps réel)" : "Ma présence aujourd'hui"}
+    </h2>
+    {isAdmin ? (
+      <AdminAttendanceView />
+    ) : (
+      <AttendanceSection userId={user.id} />
+    )}
+  </div>
+)}
 
         {/* Stats globales */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
