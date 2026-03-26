@@ -7,12 +7,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select'
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
-} from '@/components/ui/dialog'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { toast } from 'sonner'
 import {
   Clock, Coffee, UtensilsCrossed, Users, BookOpen, Handshake,
@@ -20,9 +16,10 @@ import {
   LogOut, Plus, Pencil, Trash2, FileText,
 } from 'lucide-react'
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+// ── Types ────────────────────────────────────────────────────────────────────
 
 type AttendanceStatus = 'EN_PRODUCTION' | 'PAUSE' | 'LUNCH' | 'REUNION' | 'RENCONTRE' | 'FORMATION' | 'ABSENT' | 'CONGE'
+type StatusOrDepart = AttendanceStatus | 'DEPART'
 
 interface AttendanceRecord {
   id: string
@@ -36,32 +33,32 @@ interface AttendanceRecord {
 }
 
 interface UserItem {
-  id: string
-  name: string
-  email: string
-  jobRole: string | null
+  id: string; name: string; email: string; jobRole: string | null
 }
 
-// ─── Config ──────────────────────────────────────────────────────────────────
+// ── Config ───────────────────────────────────────────────────────────────────
 
 const STATUS_CONFIG: Record<string, { label: string; icon: React.ReactNode; color: string; bg: string; limitMin: number | null }> = {
-  EN_PRODUCTION: { label: 'Shift',     icon: <Play className="w-3 h-3" />,             color: 'text-indigo-700', bg: 'bg-indigo-100', limitMin: 450 },
-  PAUSE:         { label: 'Pause',     icon: <Coffee className="w-3 h-3" />,           color: 'text-amber-700',  bg: 'bg-amber-100',  limitMin: 30  },
-  LUNCH:         { label: 'Lunch',     icon: <UtensilsCrossed className="w-3 h-3" />,  color: 'text-orange-700', bg: 'bg-orange-100', limitMin: 60  },
-  REUNION:       { label: 'Réunion',   icon: <Users className="w-3 h-3" />,            color: 'text-blue-700',   bg: 'bg-blue-100',   limitMin: 60  },
-  RENCONTRE:     { label: 'Rencontre', icon: <Handshake className="w-3 h-3" />,        color: 'text-purple-700', bg: 'bg-purple-100', limitMin: 60  },
-  FORMATION:     { label: 'Formation', icon: <BookOpen className="w-3 h-3" />,         color: 'text-emerald-700',bg: 'bg-emerald-100',limitMin: 60  },
-  ABSENT:        { label: 'Absent',    icon: <UserX className="w-3 h-3" />,            color: 'text-red-700',    bg: 'bg-red-100',    limitMin: null },
-  CONGE:         { label: 'Congé',     icon: <Palmtree className="w-3 h-3" />,         color: 'text-teal-700',   bg: 'bg-teal-100',   limitMin: null },
+  EN_PRODUCTION: { label: 'Shift',     icon: <Play className="w-3 h-3" />,            color: 'text-indigo-700', bg: 'bg-indigo-100', limitMin: 450 },
+  PAUSE:         { label: 'Pause',     icon: <Coffee className="w-3 h-3" />,          color: 'text-amber-700',  bg: 'bg-amber-100',  limitMin: 30  },
+  LUNCH:         { label: 'Lunch',     icon: <UtensilsCrossed className="w-3 h-3" />, color: 'text-orange-700', bg: 'bg-orange-100', limitMin: 60  },
+  REUNION:       { label: 'Réunion',   icon: <Users className="w-3 h-3" />,           color: 'text-blue-700',   bg: 'bg-blue-100',   limitMin: 60  },
+  RENCONTRE:     { label: 'Rencontre', icon: <Handshake className="w-3 h-3" />,       color: 'text-purple-700', bg: 'bg-purple-100', limitMin: 60  },
+  FORMATION:     { label: 'Formation', icon: <BookOpen className="w-3 h-3" />,        color: 'text-emerald-700',bg: 'bg-emerald-100',limitMin: 60  },
+  ABSENT:        { label: 'Absent',    icon: <UserX className="w-3 h-3" />,           color: 'text-red-700',    bg: 'bg-red-100',    limitMin: null },
+  CONGE:         { label: 'Congé',     icon: <Palmtree className="w-3 h-3" />,        color: 'text-teal-700',   bg: 'bg-teal-100',   limitMin: null },
+  DEPART:        { label: 'Départ',    icon: <LogOut className="w-3 h-3" />,          color: 'text-slate-600',  bg: 'bg-slate-100',  limitMin: null },
 }
 
-const ALL_STATUSES = Object.keys(STATUS_CONFIG) as AttendanceStatus[]
+const MEMBER_STATUSES = Object.keys(STATUS_CONFIG).filter(s => s !== 'DEPART') as AttendanceStatus[]
+const ALL_STATUSES_WITH_DEPART = Object.keys(STATUS_CONFIG) as StatusOrDepart[]
+const FULLDAY_STATUSES = ['ABSENT', 'CONGE']
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmtDur(min: number): string {
   const h = Math.floor(min / 60), m = Math.floor(min % 60)
-  return h > 0 ? `${h}h${m.toString().padStart(2,'0')}` : `${m}min`
+  return h > 0 ? `${h}h${m.toString().padStart(2, '0')}` : `${m}min`
 }
 
 function fmtTime(iso: string): string {
@@ -70,28 +67,27 @@ function fmtTime(iso: string): string {
 
 function fmtElapsed(min: number): string {
   const h = Math.floor(min / 60), m = Math.floor(min % 60), s = Math.floor((min * 60) % 60)
-  return h > 0 ? `${h}h${m.toString().padStart(2,'0')}m${s.toString().padStart(2,'0')}s` : `${m}m${s.toString().padStart(2,'0')}s`
+  return h > 0 ? `${h}h${m.toString().padStart(2, '0')}m${s.toString().padStart(2, '0')}s` : `${m}m${s.toString().padStart(2, '0')}s`
 }
 
-function today(): string { return new Date().toISOString().split('T')[0] }
+function todayStr(): string { return new Date().toISOString().split('T')[0] }
 
-function weekRange(): { from: string; to: string } {
-  const now = new Date()
-  const day = now.getDay() || 7
+function weekRange() {
+  const now = new Date(), day = now.getDay() || 7
   const mon = new Date(now); mon.setDate(now.getDate() - day + 1)
   const sun = new Date(mon); sun.setDate(mon.getDate() + 6)
   return { from: mon.toISOString().split('T')[0], to: sun.toISOString().split('T')[0] }
 }
 
-function monthRange(): { from: string; to: string } {
+function monthRange() {
   const now = new Date()
   return {
-    from: `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`,
+    from: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`,
     to: now.toISOString().split('T')[0],
   }
 }
 
-// ─── Realtime tab ────────────────────────────────────────────────────────────
+// ── Realtime Tab ─────────────────────────────────────────────────────────────
 
 interface MemberStatus {
   user: UserItem
@@ -106,11 +102,11 @@ function RealtimeTab({ users }: { users: UserItem[] }) {
   const [tick, setTick] = useState(0)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [changingUser, setChangingUser] = useState<string | null>(null)
-  const [changeStatus, setChangeStatus] = useState<AttendanceStatus>('EN_PRODUCTION')
+  const [changeStatus, setChangeStatus] = useState<StatusOrDepart>('EN_PRODUCTION')
   const [changing, setChanging] = useState(false)
 
   const fetchAll = useCallback(async () => {
-    const res = await fetch(`/api/attendance?all=true&date=${today()}`)
+    const res = await fetch(`/api/attendance?all=true&date=${todayStr()}`)
     if (!res.ok) return
     const records: AttendanceRecord[] = await res.json()
 
@@ -142,11 +138,8 @@ function RealtimeTab({ users }: { users: UserItem[] }) {
           alerts.push(`Dépassement ${cfg.label} +${fmtDur(elapsed - cfg.limitMin)}`)
         }
       }
-      if (departed && totalShiftMin < 450) {
+      if (departed && totalShiftMin > 0 && totalShiftMin < 450) {
         alerts.push(`Départ anticipé (${fmtDur(totalShiftMin)} / 7h30)`)
-      }
-      if (!active && !departed && recs.length === 0) {
-        alerts.push('Absent non signalé')
       }
 
       return { user, activeRecord: active, totalShiftMin, departed, alerts }
@@ -171,15 +164,26 @@ function RealtimeTab({ users }: { users: UserItem[] }) {
     if (!changingUser) return
     setChanging(true)
     try {
+      const isFullDay = FULLDAY_STATUSES.includes(changeStatus)
+      const body: any = {
+        status: changeStatus,
+        targetUserId: changingUser,
+        forceStatus: true,
+      }
+      if (isFullDay) {
+        body.fullDay = true
+        body.startedAt = todayStr()
+      }
+
       const res = await fetch('/api/attendance', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: changeStatus, targetUserId: changingUser, startedAt: new Date().toISOString() }),
+        body: JSON.stringify(body),
       })
       if (!res.ok) throw new Error()
-      toast.success('Statut modifié')
+      toast.success(`Statut mis à jour : ${STATUS_CONFIG[changeStatus]?.label}`)
       setChangingUser(null)
-      fetchAll()
+      await fetchAll()
     } catch {
       toast.error('Erreur lors du changement de statut')
     } finally {
@@ -188,30 +192,29 @@ function RealtimeTab({ users }: { users: UserItem[] }) {
   }
 
   const now = Date.now()
-  const activeCount = members.filter(m => m.activeRecord).length
-  const alertCount = members.filter(m => m.alerts.length > 0).length
-  const departedCount = members.filter(m => m.departed).length
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <div className="flex gap-4 text-sm">
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-indigo-500 inline-block" />{activeCount} actifs</span>
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-slate-400 inline-block" />{departedCount} partis</span>
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500 inline-block" />{alertCount} alertes</span>
+        <div className="flex gap-4 text-sm text-muted-foreground">
+          <span>{members.filter(m => m.activeRecord).length} actifs</span>
+          <span>{members.filter(m => m.departed).length} partis</span>
+          <span className="text-red-600">{members.filter(m => m.alerts.length > 0).length} alertes</span>
         </div>
-        <div className="flex gap-2">
-          <Button size="sm" variant="outline" className="gap-1" onClick={fetchAll}>
-            <RefreshCw className="w-3 h-3" />Actualiser
-          </Button>
-        </div>
+        <Button size="sm" variant="outline" className="gap-1" onClick={fetchAll}>
+          <RefreshCw className="w-3 h-3" />Actualiser
+        </Button>
       </div>
-      {lastUpdated && <p className="text-xs text-muted-foreground">Mis à jour à {fmtTime(lastUpdated.toISOString())} · auto 30s</p>}
+      {lastUpdated && (
+        <p className="text-xs text-muted-foreground">Mis à jour à {fmtTime(lastUpdated.toISOString())} · auto 30s</p>
+      )}
 
       <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
         {members.map(m => {
           const cfg = m.activeRecord ? STATUS_CONFIG[m.activeRecord.status] : null
-          const elapsed = m.activeRecord ? (now - new Date(m.activeRecord.startedAt + 'Z').getTime()) / 60000 : 0
+          const elapsed = m.activeRecord
+            ? (now - new Date(m.activeRecord.startedAt + 'Z').getTime()) / 60000
+            : 0
           const isOvertime = cfg?.limitMin && elapsed > cfg.limitMin
 
           return (
@@ -224,13 +227,18 @@ function RealtimeTab({ users }: { users: UserItem[] }) {
                   </div>
                   <div className="flex items-center gap-2">
                     {m.departed ? (
-                      <Badge className="bg-slate-100 text-slate-600 border-0 text-xs gap-1"><LogOut className="w-3 h-3" />Parti</Badge>
+                      <Badge className="bg-slate-100 text-slate-600 border-0 text-xs gap-1">
+                        <LogOut className="w-3 h-3" />Parti
+                      </Badge>
                     ) : m.activeRecord && cfg ? (
-                      <Badge className={`${cfg.bg} ${cfg.color} border-0 text-xs gap-1`}>{cfg.icon}{cfg.label}</Badge>
+                      <Badge className={`${cfg.bg} ${cfg.color} border-0 text-xs gap-1`}>
+                        {cfg.icon}{cfg.label}
+                      </Badge>
                     ) : (
                       <Badge className="bg-slate-100 text-slate-500 border-0 text-xs">Inactif</Badge>
                     )}
-                    <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setChangingUser(m.user.id)}>
+                    <Button size="sm" variant="ghost" className="h-7 w-7 p-0 hover:bg-indigo-50"
+                      onClick={() => { setChangingUser(m.user.id); setChangeStatus('EN_PRODUCTION') }}>
                       <Pencil className="w-3 h-3" />
                     </Button>
                   </div>
@@ -266,24 +274,33 @@ function RealtimeTab({ users }: { users: UserItem[] }) {
       <Dialog open={!!changingUser} onOpenChange={() => setChangingUser(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Changer le statut en temps réel</DialogTitle>
+            <DialogTitle>Changer le statut — {members.find(m => m.user.id === changingUser)?.user.name}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label>Membre</Label>
-              <p className="text-sm font-medium">{members.find(m => m.user.id === changingUser)?.user.name}</p>
-            </div>
-            <div className="space-y-2">
               <Label>Nouveau statut</Label>
-              <Select value={changeStatus} onValueChange={(v) => setChangeStatus(v as AttendanceStatus)}>
+              <Select value={changeStatus} onValueChange={v => setChangeStatus(v as StatusOrDepart)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {ALL_STATUSES.map(s => (
-                    <SelectItem key={s} value={s}>{STATUS_CONFIG[s].label}</SelectItem>
+                  {ALL_STATUSES_WITH_DEPART.map(s => (
+                    <SelectItem key={s} value={s}>
+                      <span className="flex items-center gap-2">
+                        {STATUS_CONFIG[s]?.icon}
+                        {STATUS_CONFIG[s]?.label}
+                        {FULLDAY_STATUSES.includes(s) && (
+                          <span className="text-xs text-muted-foreground">(journée complète)</span>
+                        )}
+                      </span>
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
+            {FULLDAY_STATUSES.includes(changeStatus) && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-sm text-amber-700">
+                ⚠️ Ceci effacera toutes les entrées du jour et marquera la journée complète (8h-17h).
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setChangingUser(null)}>Annuler</Button>
@@ -297,22 +314,16 @@ function RealtimeTab({ users }: { users: UserItem[] }) {
   )
 }
 
-// ─── Management tab ──────────────────────────────────────────────────────────
+// ── Management Tab ────────────────────────────────────────────────────────────
 
 function ManagementTab({ users }: { users: UserItem[] }) {
   const [selectedUser, setSelectedUser] = useState<string>('')
-  const [selectedDate, setSelectedDate] = useState(today())
+  const [selectedDate, setSelectedDate] = useState(todayStr())
   const [records, setRecords] = useState<AttendanceRecord[]>([])
   const [loading, setLoading] = useState(false)
   const [showAdd, setShowAdd] = useState(false)
   const [editRecord, setEditRecord] = useState<AttendanceRecord | null>(null)
-
-  const [form, setForm] = useState({
-    status: 'EN_PRODUCTION' as AttendanceStatus,
-    startedAt: '',
-    endedAt: '',
-    note: '',
-  })
+  const [form, setForm] = useState({ status: 'EN_PRODUCTION' as AttendanceStatus, startedAt: '', endedAt: '', note: '' })
 
   const fetchRecords = useCallback(async () => {
     if (!selectedUser) return
@@ -326,19 +337,25 @@ function ManagementTab({ users }: { users: UserItem[] }) {
 
   const handleAdd = async () => {
     try {
-      const startIso = `${selectedDate}T${form.startedAt}:00`
-      const endIso = form.endedAt ? `${selectedDate}T${form.endedAt}:00` : null
+      const isFullDay = FULLDAY_STATUSES.includes(form.status)
+      const body: any = {
+        status: form.status,
+        targetUserId: selectedUser,
+        note: form.note || null,
+      }
+
+      if (isFullDay) {
+        body.fullDay = true
+        body.startedAt = selectedDate
+      } else {
+        body.startedAt = `${selectedDate}T${form.startedAt}:00`
+        if (form.endedAt) body.endedAt = `${selectedDate}T${form.endedAt}:00`
+      }
 
       const res = await fetch('/api/attendance', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          status: form.status,
-          targetUserId: selectedUser,
-          startedAt: startIso,
-          endedAt: endIso,
-          note: form.note || null,
-        }),
+        body: JSON.stringify(body),
       })
       if (!res.ok) throw new Error()
       toast.success('Entrée ajoutée')
@@ -346,23 +363,20 @@ function ManagementTab({ users }: { users: UserItem[] }) {
       setForm({ status: 'EN_PRODUCTION', startedAt: '', endedAt: '', note: '' })
       fetchRecords()
     } catch {
-      toast.error('Erreur lors de l\'ajout')
+      toast.error("Erreur lors de l'ajout")
     }
   }
 
   const handleEdit = async () => {
     if (!editRecord) return
     try {
-      const startIso = `${selectedDate}T${form.startedAt}:00`
-      const endIso = form.endedAt ? `${selectedDate}T${form.endedAt}:00` : null
-
       const res = await fetch(`/api/attendance/${editRecord.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           status: form.status,
-          startedAt: startIso,
-          endedAt: endIso,
+          startedAt: `${selectedDate}T${form.startedAt}:00`,
+          endedAt: form.endedAt ? `${selectedDate}T${form.endedAt}:00` : null,
           note: form.note || null,
         }),
       })
@@ -392,17 +406,16 @@ function ManagementTab({ users }: { users: UserItem[] }) {
     })
   }
 
+  const isFullDayForm = FULLDAY_STATUSES.includes(form.status)
+
   return (
     <div className="space-y-4">
-      {/* Filters */}
       <div className="grid sm:grid-cols-3 gap-4">
         <div className="space-y-1">
           <Label className="text-xs">Membre</Label>
           <Select value={selectedUser} onValueChange={setSelectedUser}>
             <SelectTrigger><SelectValue placeholder="Choisir un membre" /></SelectTrigger>
-            <SelectContent>
-              {users.map(u => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}
-            </SelectContent>
+            <SelectContent>{users.map(u => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}</SelectContent>
           </Select>
         </div>
         <div className="space-y-1">
@@ -420,7 +433,6 @@ function ManagementTab({ users }: { users: UserItem[] }) {
         </div>
       </div>
 
-      {/* Records */}
       {loading ? (
         <div className="text-center py-8 text-muted-foreground text-sm">Chargement...</div>
       ) : records.length === 0 ? (
@@ -432,12 +444,11 @@ function ManagementTab({ users }: { users: UserItem[] }) {
           {records.map(r => {
             const cfg = STATUS_CONFIG[r.status]
             return (
-              <div key={r.id} className="flex items-center justify-between p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl">
-                <div className="flex items-center gap-3">
+              <div key={r.id} className="flex items-center justify-between p-3 bg-white dark:bg-slate-800 border border-slate-200 rounded-xl">
+                <div className="flex items-center gap-3 flex-wrap">
                   <Badge className={`${cfg?.bg} ${cfg?.color} border-0 text-xs gap-1`}>{cfg?.icon}{cfg?.label}</Badge>
                   <span className="text-sm text-muted-foreground">
-                    {fmtTime(r.startedAt)}
-                    {r.endedAt ? ` → ${fmtTime(r.endedAt)}` : ' → en cours'}
+                    {fmtTime(r.startedAt)}{r.endedAt ? ` → ${fmtTime(r.endedAt)}` : ' → en cours'}
                   </span>
                   {r.durationMin !== null && (
                     <span className="text-xs font-mono text-slate-500">{fmtDur(r.durationMin)}</span>
@@ -462,26 +473,39 @@ function ManagementTab({ users }: { users: UserItem[] }) {
       <Dialog open={showAdd} onOpenChange={setShowAdd}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Ajouter une entrée — {users.find(u => u.id === selectedUser)?.name} — {selectedDate}</DialogTitle>
+            <DialogTitle>Ajouter — {users.find(u => u.id === selectedUser)?.name} — {selectedDate}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
               <Label>Statut</Label>
               <Select value={form.status} onValueChange={v => setForm({ ...form, status: v as AttendanceStatus })}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>{ALL_STATUSES.map(s => <SelectItem key={s} value={s}>{STATUS_CONFIG[s].label}</SelectItem>)}</SelectContent>
+                <SelectContent>
+                  {MEMBER_STATUSES.map(s => (
+                    <SelectItem key={s} value={s}>
+                      {STATUS_CONFIG[s].label}
+                      {FULLDAY_STATUSES.includes(s) && ' (journée complète)'}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Heure début</Label>
-                <Input type="time" value={form.startedAt} onChange={e => setForm({ ...form, startedAt: e.target.value })} />
+            {isFullDayForm ? (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-sm text-amber-700">
+                ⚠️ Toutes les entrées du jour seront supprimées et remplacées par une journée complète (8h-17h).
               </div>
-              <div className="space-y-2">
-                <Label>Heure fin (optionnel)</Label>
-                <Input type="time" value={form.endedAt} onChange={e => setForm({ ...form, endedAt: e.target.value })} />
+            ) : (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Heure début</Label>
+                  <Input type="time" value={form.startedAt} onChange={e => setForm({ ...form, startedAt: e.target.value })} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Heure fin (optionnel)</Label>
+                  <Input type="time" value={form.endedAt} onChange={e => setForm({ ...form, endedAt: e.target.value })} />
+                </div>
               </div>
-            </div>
+            )}
             <div className="space-y-2">
               <Label>Note (optionnel)</Label>
               <Input value={form.note} onChange={e => setForm({ ...form, note: e.target.value })} placeholder="Ex: Pause oubliée..." />
@@ -489,7 +513,9 @@ function ManagementTab({ users }: { users: UserItem[] }) {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowAdd(false)}>Annuler</Button>
-            <Button onClick={handleAdd} disabled={!form.startedAt} className="bg-indigo-600 text-white hover:bg-indigo-700">Ajouter</Button>
+            <Button onClick={handleAdd} disabled={!isFullDayForm && !form.startedAt} className="bg-indigo-600 text-white hover:bg-indigo-700">
+              Ajouter
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -497,15 +523,13 @@ function ManagementTab({ users }: { users: UserItem[] }) {
       {/* Edit dialog */}
       <Dialog open={!!editRecord} onOpenChange={() => setEditRecord(null)}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Modifier l'entrée</DialogTitle>
-          </DialogHeader>
+          <DialogHeader><DialogTitle>Modifier l'entrée</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
               <Label>Statut</Label>
               <Select value={form.status} onValueChange={v => setForm({ ...form, status: v as AttendanceStatus })}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>{ALL_STATUSES.map(s => <SelectItem key={s} value={s}>{STATUS_CONFIG[s].label}</SelectItem>)}</SelectContent>
+                <SelectContent>{MEMBER_STATUSES.map(s => <SelectItem key={s} value={s}>{STATUS_CONFIG[s].label}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -533,44 +557,38 @@ function ManagementTab({ users }: { users: UserItem[] }) {
   )
 }
 
-// ─── Reports tab ─────────────────────────────────────────────────────────────
+// ── Reports Tab ───────────────────────────────────────────────────────────────
 
 interface ReportRow {
-  userName: string
-  date: string
-  statusBreakdown: Record<string, number>
-  totalShift: number
-  totalPause: number
-  totalLunch: number
-  totalOther: number
-  alerts: string[]
+  userName: string; date: string
+  totalShift: number; totalPause: number; totalLunch: number; totalOther: number
+  breakdown: Record<string, number>; alerts: string[]
 }
 
 function ReportsTab({ users }: { users: UserItem[] }) {
   const [period, setPeriod] = useState<'today' | 'week' | 'month' | 'custom'>('today')
-  const [dateFrom, setDateFrom] = useState(today())
-  const [dateTo, setDateTo] = useState(today())
+  const [dateFrom, setDateFrom] = useState(todayStr())
+  const [dateTo, setDateTo] = useState(todayStr())
   const [records, setRecords] = useState<AttendanceRecord[]>([])
   const [loading, setLoading] = useState(false)
 
   const getRange = () => {
-    if (period === 'today') return { from: today(), to: today() }
+    if (period === 'today') return { from: todayStr(), to: todayStr() }
     if (period === 'week') return weekRange()
     if (period === 'month') return monthRange()
     return { from: dateFrom, to: dateTo }
   }
 
-  const fetchReport = async () => {
+  const fetchReport = useCallback(async () => {
     setLoading(true)
     const { from, to } = getRange()
     const res = await fetch(`/api/attendance?all=true&dateFrom=${from}&dateTo=${to}`)
     if (res.ok) setRecords(await res.json())
     setLoading(false)
-  }
+  }, [period, dateFrom, dateTo])
 
   useEffect(() => { fetchReport() }, [period])
 
-  // Build report rows grouped by user + date
   const buildRows = (): ReportRow[] => {
     const map = new Map<string, AttendanceRecord[]>()
     for (const r of records) {
@@ -579,15 +597,12 @@ function ReportsTab({ users }: { users: UserItem[] }) {
       if (!map.has(key)) map.set(key, [])
       map.get(key)!.push(r)
     }
-
     const rows: ReportRow[] = []
     map.forEach((recs, key) => {
       const [userId, date] = key.split('__')
       const userName = users.find(u => u.id === userId)?.name || userId
-
       const breakdown: Record<string, number> = {}
       let totalShift = 0, totalPause = 0, totalLunch = 0, totalOther = 0
-
       for (const r of recs) {
         const dur = r.durationMin || 0
         breakdown[r.status] = (breakdown[r.status] || 0) + dur
@@ -596,15 +611,12 @@ function ReportsTab({ users }: { users: UserItem[] }) {
         else if (r.status === 'LUNCH') totalLunch += dur
         else totalOther += dur
       }
-
       const alerts: string[] = []
       if (totalShift > 0 && totalShift < 450) alerts.push(`Shift court (${fmtDur(totalShift)})`)
       if (totalPause > 30) alerts.push(`Pause dépassée (${fmtDur(totalPause)})`)
       if (totalLunch > 60) alerts.push(`Lunch dépassé (${fmtDur(totalLunch)})`)
-
-      rows.push({ userName, date, statusBreakdown: breakdown, totalShift, totalPause, totalLunch, totalOther, alerts })
+      rows.push({ userName, date, totalShift, totalPause, totalLunch, totalOther, breakdown, alerts })
     })
-
     return rows.sort((a, b) => a.date.localeCompare(b.date) || a.userName.localeCompare(b.userName))
   }
 
@@ -613,16 +625,15 @@ function ReportsTab({ users }: { users: UserItem[] }) {
   const exportCSV = () => {
     const headers = ['Membre', 'Date', 'Shift', 'Pause', 'Lunch', 'Réunion', 'Rencontre', 'Formation', 'Absent', 'Congé', 'Alertes']
     const lines = rows.map(r => [
-      r.userName,
-      r.date,
+      r.userName, r.date,
       fmtDur(r.totalShift),
-      fmtDur(r.statusBreakdown['PAUSE'] || 0),
-      fmtDur(r.statusBreakdown['LUNCH'] || 0),
-      fmtDur(r.statusBreakdown['REUNION'] || 0),
-      fmtDur(r.statusBreakdown['RENCONTRE'] || 0),
-      fmtDur(r.statusBreakdown['FORMATION'] || 0),
-      fmtDur(r.statusBreakdown['ABSENT'] || 0),
-      fmtDur(r.statusBreakdown['CONGE'] || 0),
+      fmtDur(r.breakdown['PAUSE'] || 0),
+      fmtDur(r.breakdown['LUNCH'] || 0),
+      fmtDur(r.breakdown['REUNION'] || 0),
+      fmtDur(r.breakdown['RENCONTRE'] || 0),
+      fmtDur(r.breakdown['FORMATION'] || 0),
+      fmtDur(r.breakdown['ABSENT'] || 0),
+      fmtDur(r.breakdown['CONGE'] || 0),
       r.alerts.join(' | '),
     ])
     const csv = [headers, ...lines].map(r => r.map(c => `"${c}"`).join(',')).join('\n')
@@ -630,23 +641,20 @@ function ReportsTab({ users }: { users: UserItem[] }) {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     const { from, to } = getRange()
-    a.href = url
-    a.download = `presence-${from}-${to}.csv`
-    a.click()
+    a.href = url; a.download = `presence-${from}-${to}.csv`; a.click()
     URL.revokeObjectURL(url)
   }
 
   const copyTable = () => {
     const lines = rows.map(r =>
-      `${r.userName}\t${r.date}\t${fmtDur(r.totalShift)}\t${fmtDur(r.statusBreakdown['PAUSE']||0)}\t${fmtDur(r.statusBreakdown['LUNCH']||0)}\t${r.alerts.join(', ')}`
+      `${r.userName}\t${r.date}\t${fmtDur(r.totalShift)}\t${fmtDur(r.totalPause)}\t${fmtDur(r.totalLunch)}\t${r.alerts.join(', ')}`
     )
     navigator.clipboard.writeText(['Membre\tDate\tShift\tPause\tLunch\tAlertes', ...lines].join('\n'))
-    toast.success('Tableau copié dans le presse-papiers')
+    toast.success('Tableau copié')
   }
 
   return (
     <div className="space-y-4">
-      {/* Period selector */}
       <div className="flex flex-wrap gap-3 items-end">
         <div className="space-y-1">
           <Label className="text-xs">Période</Label>
@@ -662,51 +670,36 @@ function ReportsTab({ users }: { users: UserItem[] }) {
         </div>
         {period === 'custom' && (
           <>
-            <div className="space-y-1">
-              <Label className="text-xs">Du</Label>
-              <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="w-40" />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Au</Label>
-              <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="w-40" />
-            </div>
+            <div className="space-y-1"><Label className="text-xs">Du</Label><Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="w-40" /></div>
+            <div className="space-y-1"><Label className="text-xs">Au</Label><Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="w-40" /></div>
             <Button onClick={fetchReport} className="bg-indigo-600 text-white hover:bg-indigo-700">Chercher</Button>
           </>
         )}
         {rows.length > 0 && (
           <div className="flex gap-2 ml-auto">
-            <Button size="sm" variant="outline" className="gap-1" onClick={copyTable}>
-              <FileText className="w-3 h-3" />Copier
-            </Button>
-            <Button size="sm" variant="outline" className="gap-1" onClick={exportCSV}>
-              <Download className="w-3 h-3" />CSV
-            </Button>
+            <Button size="sm" variant="outline" className="gap-1" onClick={copyTable}><FileText className="w-3 h-3" />Copier</Button>
+            <Button size="sm" variant="outline" className="gap-1" onClick={exportCSV}><Download className="w-3 h-3" />CSV</Button>
           </div>
         )}
       </div>
 
-      {/* Table */}
       {loading ? (
         <div className="text-center py-8 text-muted-foreground text-sm">Chargement...</div>
       ) : rows.length === 0 ? (
         <div className="text-center py-8 text-muted-foreground text-sm border-2 border-dashed rounded-xl">Aucune donnée pour cette période</div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
+        <div className="overflow-x-auto rounded-xl border border-slate-200">
           <table className="w-full text-sm">
-            <thead className="bg-slate-50 dark:bg-slate-800">
+            <thead className="bg-slate-50">
               <tr>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Membre</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Date</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Shift</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Pause</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Lunch</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Autres</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Alertes</th>
+                {['Membre', 'Date', 'Shift', 'Pause', 'Lunch', 'Autres', 'Alertes'].map(h => (
+                  <th key={h} className="text-left px-4 py-3 font-medium text-muted-foreground">{h}</th>
+                ))}
               </tr>
             </thead>
             <tbody>
               {rows.map((r, i) => (
-                <tr key={i} className={`border-t border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 ${r.alerts.length > 0 ? 'bg-red-50/30 dark:bg-red-950/10' : ''}`}>
+                <tr key={i} className={`border-t border-slate-100 hover:bg-slate-50 ${r.alerts.length > 0 ? 'bg-red-50/30' : ''}`}>
                   <td className="px-4 py-3 font-medium">{r.userName}</td>
                   <td className="px-4 py-3 text-muted-foreground">{r.date}</td>
                   <td className="px-4 py-3">
@@ -724,9 +717,7 @@ function ReportsTab({ users }: { users: UserItem[] }) {
                       {r.totalLunch > 0 ? fmtDur(r.totalLunch) : '—'}
                     </span>
                   </td>
-                  <td className="px-4 py-3 font-mono text-xs text-slate-600">
-                    {r.totalOther > 0 ? fmtDur(r.totalOther) : '—'}
-                  </td>
+                  <td className="px-4 py-3 font-mono text-xs text-slate-600">{r.totalOther > 0 ? fmtDur(r.totalOther) : '—'}</td>
                   <td className="px-4 py-3">
                     {r.alerts.length > 0 ? (
                       <div className="flex flex-wrap gap-1">
@@ -736,9 +727,7 @@ function ReportsTab({ users }: { users: UserItem[] }) {
                           </span>
                         ))}
                       </div>
-                    ) : (
-                      <span className="text-xs text-emerald-600">✓ OK</span>
-                    )}
+                    ) : <span className="text-xs text-emerald-600">✓ OK</span>}
                   </td>
                 </tr>
               ))}
@@ -750,7 +739,7 @@ function ReportsTab({ users }: { users: UserItem[] }) {
   )
 }
 
-// ─── Main component ───────────────────────────────────────────────────────────
+// ── Main ─────────────────────────────────────────────────────────────────────
 
 export default function AdminAttendanceView() {
   const [users, setUsers] = useState<UserItem[]>([])
@@ -764,32 +753,17 @@ export default function AdminAttendanceView() {
   return (
     <div className="space-y-4">
       <h2 className="text-xl font-bold flex items-center gap-2">
-        <Clock className="h-5 w-5 text-indigo-500" />
-        Gestion des présences
+        <Clock className="h-5 w-5 text-indigo-500" />Gestion des présences
       </h2>
-
       <Tabs defaultValue="realtime">
-        <TabsList className="bg-gradient-to-r from-indigo-100 to-purple-100 dark:from-indigo-900/30 dark:to-purple-900/30">
-          <TabsTrigger value="realtime" className="data-[state=active]:bg-white dark:data-[state=active]:bg-slate-800">
-            Temps réel
-          </TabsTrigger>
-          <TabsTrigger value="manage" className="data-[state=active]:bg-white dark:data-[state=active]:bg-slate-800">
-            Gestion
-          </TabsTrigger>
-          <TabsTrigger value="reports" className="data-[state=active]:bg-white dark:data-[state=active]:bg-slate-800">
-            Rapports
-          </TabsTrigger>
+        <TabsList className="bg-gradient-to-r from-indigo-100 to-purple-100">
+          <TabsTrigger value="realtime" className="data-[state=active]:bg-white">Temps réel</TabsTrigger>
+          <TabsTrigger value="manage" className="data-[state=active]:bg-white">Gestion</TabsTrigger>
+          <TabsTrigger value="reports" className="data-[state=active]:bg-white">Rapports</TabsTrigger>
         </TabsList>
-
-        <TabsContent value="realtime" className="mt-4">
-          <RealtimeTab users={users} />
-        </TabsContent>
-        <TabsContent value="manage" className="mt-4">
-          <ManagementTab users={users} />
-        </TabsContent>
-        <TabsContent value="reports" className="mt-4">
-          <ReportsTab users={users} />
-        </TabsContent>
+        <TabsContent value="realtime" className="mt-4"><RealtimeTab users={users} /></TabsContent>
+        <TabsContent value="manage" className="mt-4"><ManagementTab users={users} /></TabsContent>
+        <TabsContent value="reports" className="mt-4"><ReportsTab users={users} /></TabsContent>
       </Tabs>
     </div>
   )
