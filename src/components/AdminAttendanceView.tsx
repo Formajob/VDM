@@ -117,7 +117,13 @@ function RealtimeTab({ users }: { users: UserItem[] }) {
     }
 
     const now = Date.now()
-    const statuses: MemberStatus[] = users.map(user => {
+    // Filter out ADMIN users - they don't clock in/out
+const activeUsers = users.filter(u => {
+  const isAdminEmail = u.email?.toLowerCase().includes('admin')
+  const isAdminRole = u.jobRole === 'ADMIN'
+  return !isAdminEmail && !isAdminRole
+})
+    const statuses: MemberStatus[] = activeUsers.map(user => {
       const recs = byUser.get(user.id) || []
       const active = recs.find(r => !r.endedAt) || null
       const departed = !active && recs.length > 0
@@ -336,58 +342,74 @@ function ManagementTab({ users }: { users: UserItem[] }) {
   useEffect(() => { fetchRecords() }, [fetchRecords])
 
   const handleAdd = async () => {
-    try {
-      const isFullDay = FULLDAY_STATUSES.includes(form.status)
-      const body: any = {
-        status: form.status,
-        targetUserId: selectedUser,
-        note: form.note || null,
-      }
-
-      if (isFullDay) {
-        body.fullDay = true
-        body.startedAt = selectedDate
-      } else {
-        body.startedAt = `${selectedDate}T${form.startedAt}:00`
-        if (form.endedAt) body.endedAt = `${selectedDate}T${form.endedAt}:00`
-      }
-
-      const res = await fetch('/api/attendance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      if (!res.ok) throw new Error()
-      toast.success('Entrée ajoutée')
-      setShowAdd(false)
-      setForm({ status: 'EN_PRODUCTION', startedAt: '', endedAt: '', note: '' })
-      fetchRecords()
-    } catch {
-      toast.error("Erreur lors de l'ajout")
+  try {
+    const isFullDay = FULLDAY_STATUSES.includes(form.status)
+    const body: any = {
+      status: form.status,
+      targetUserId: selectedUser,
+      forceStatus: true,  // ← AJOUTÉ : indique à l'API que c'est un admin qui force le statut
+      note: form.note || null,
     }
-  }
 
-  const handleEdit = async () => {
-    if (!editRecord) return
-    try {
-      const res = await fetch(`/api/attendance/${editRecord.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          status: form.status,
-          startedAt: `${selectedDate}T${form.startedAt}:00`,
-          endedAt: form.endedAt ? `${selectedDate}T${form.endedAt}:00` : null,
-          note: form.note || null,
-        }),
-      })
-      if (!res.ok) throw new Error()
-      toast.success('Entrée modifiée')
-      setEditRecord(null)
-      fetchRecords()
-    } catch {
-      toast.error('Erreur lors de la modification')
+    if (isFullDay) {
+      body.fullDay = true
+      body.startedAt = selectedDate
+    } else {
+      body.startedAt = `${selectedDate}T${form.startedAt}:00`
+      if (form.endedAt) body.endedAt = `${selectedDate}T${form.endedAt}:00`
     }
+
+    const res = await fetch('/api/attendance', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) throw new Error()
+    toast.success('Entrée ajoutée')
+    setShowAdd(false)
+    setForm({ status: 'EN_PRODUCTION', startedAt: '', endedAt: '', note: '' })
+    fetchRecords()
+  } catch {
+    toast.error("Erreur lors de l'ajout")
   }
+}
+
+const handleEdit = async () => {
+  if (!editRecord) return
+  try {
+    // 1. Supprimer l'ancienne entrée
+    await fetch(`/api/attendance/${editRecord.id}`, { method: 'DELETE' })
+    
+    // 2. Créer la nouvelle entrée avec les données mises à jour
+    const isFullDay = FULLDAY_STATUSES.includes(form.status)
+    const body: any = {
+      status: form.status,
+      targetUserId: selectedUser,
+      forceStatus: true,  // ← AJOUTÉ : essentiel pour que l'API cible le bon utilisateur
+      note: form.note || null,
+    }
+
+    if (isFullDay) {
+      body.fullDay = true
+      body.startedAt = selectedDate
+    } else {
+      body.startedAt = `${selectedDate}T${form.startedAt}:00`
+      if (form.endedAt) body.endedAt = `${selectedDate}T${form.endedAt}:00`
+    }
+
+    const res = await fetch('/api/attendance', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) throw new Error()
+    toast.success('Entrée modifiée')
+    setEditRecord(null)
+    fetchRecords()
+  } catch {
+    toast.error('Erreur lors de la modification')
+  }
+}
 
   const handleDelete = async (id: string) => {
     if (!confirm('Supprimer cette entrée ?')) return
