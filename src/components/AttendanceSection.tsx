@@ -39,6 +39,10 @@ const STATUS_CONFIG: Record<AttendanceStatus, StatusConfig> = {
 
 const FULLDAY_STATUSES: AttendanceStatus[] = ['ABSENT', 'CONGE']
 
+const MEMBER_SELECTABLE_STATUSES: AttendanceStatus[] = [
+  'EN_PRODUCTION', 'PAUSE', 'LUNCH', 'REUNION', 'RENCONTRE', 'FORMATION'
+]
+
 function formatDuration(minutes: number): string {
   const h = Math.floor(minutes / 60), m = Math.floor(minutes % 60), s = Math.floor((minutes * 60) % 60)
   return h > 0 ? `${h}h${m.toString().padStart(2,'0')}m${s.toString().padStart(2,'0')}s` : `${m}m${s.toString().padStart(2,'0')}s`
@@ -82,7 +86,6 @@ export default function AttendanceSection({ userId }: { userId: string }) {
 
   useEffect(() => { fetchRecords() }, [fetchRecords])
 
-  // Live timer
   useEffect(() => {
     if (!activeRecord) { setElapsed(0); return }
     const start = new Date(activeRecord.startedAt + 'Z')
@@ -150,7 +153,6 @@ export default function AttendanceSection({ userId }: { userId: string }) {
         </CardHeader>
         <CardContent className="space-y-4">
 
-          {/* Full day locked */}
           {isFullDayLocked && fullDayRecord && fullDayCfg ? (
             <div className={`rounded-xl p-4 ${fullDayCfg.bgColor} border ${fullDayCfg.borderColor}`}>
               <div className="flex items-center gap-3">
@@ -200,11 +202,10 @@ export default function AttendanceSection({ userId }: { userId: string }) {
             </div>
           )}
 
-          {/* Buttons — only if not full day locked and not departed */}
           {!departed && !isFullDayLocked && (
             <>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {(Object.keys(STATUS_CONFIG) as AttendanceStatus[]).map(status => {
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {MEMBER_SELECTABLE_STATUSES.map(status => {
                   const c = STATUS_CONFIG[status]
                   const isActive = activeRecord?.status === status
                   return (
@@ -240,42 +241,6 @@ export default function AttendanceSection({ userId }: { userId: string }) {
           )}
         </CardContent>
       </Card>
-
-      {/* History */}
-      {records.length > 0 && (
-        <Card className="border border-slate-200">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">Historique du jour</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-1">
-              {records.map(r => {
-                const c = STATUS_CONFIG[r.status]
-                const isLate = r.durationMin !== null && c?.limitMin !== null && r.durationMin > (c?.limitMin ?? Infinity)
-                return (
-                  <div key={r.id} className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-slate-50 text-sm">
-                    <div className="flex items-center gap-2">
-                      <span className={c?.color}>{c?.icon}</span>
-                      <span className="font-medium">{c?.label}</span>
-                      <span className="text-muted-foreground text-xs">
-                        {formatTime(r.startedAt)}{r.endedAt ? ` → ${formatTime(r.endedAt)}` : ' → en cours'}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {r.durationMin !== null && (
-                        <span className={`text-xs font-mono ${isLate ? 'text-red-600 font-bold' : 'text-muted-foreground'}`}>
-                          {formatMinutes(r.durationMin)}{isLate && ' ⚠️'}
-                        </span>
-                      )}
-                      {!r.endedAt && <Badge className="text-[10px] bg-indigo-100 text-indigo-700 border-0">En cours</Badge>}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      )}
     </div>
   )
 }

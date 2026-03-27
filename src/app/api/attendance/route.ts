@@ -52,23 +52,68 @@ export async function GET(request: Request) {
   }
 }
 
-// POST - start a new status
+// POST - start a new status or force status for another user (admin)
 export async function POST(request: Request) {
   try {
     const session = await getServerSession(authOptions)
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const sessionUserId = (session.user as any).id
+    const userRole = (session.user as any).role
     const body = await request.json()
-    const { status, note } = body
+    const { status, note, targetUserId, forceStatus, fullDay, startedAt, endedAt } = body
 
-    // Close any currently active record (no endedAt)
+    // Determine which user to update: targetUserId if admin forcing, otherwise session user
+    const userIdToUpdate = (userRole === 'ADMIN' && forceStatus && targetUserId) 
+      ? targetUserId 
+      : sessionUserId
+
+    // If fullDay mode (ABSENT/CONGE), delete existing records for that day first
+    if (fullDay && startedAt) {
+      const dayStart = `${startedAt}T00:00:00`
+      const dayEnd = `${startedAt}T23:59:59`
+      await supabaseAdmin
+        .from('Attendance')
+        .delete()
+        .eq('userId', userIdToUpdate)
+        .gte('startedAt', dayStart)
+        .lte('startedAt', dayEnd)
+      
+      // Create full day record (8h-17h)
+      const fullDayStart = new Date(`${startedAt}T08:00:00Z`)
+      const fullDayEnd = new Date(`${startedAt}T17:00:00Z`)
+      const durationMin = (fullDayEnd.getTime() - fullDayStart.getTime()) / 60000
+
+      const { data, error } = await supabaseAdmin
+        .from('Attendance')
+        .insert({
+          id: nanoid(),
+          userId: userIdToUpdate,
+          status,
+          startedAt: fullDayStart.toISOString(),
+          endedAt: fullDayEnd.toISOString(),
+          durationMin: parseFloat(durationMin.toFixed(2)),
+          note: note || null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        })
+        .select(`
+          *,
+          user:User!Attendance_userId_fkey (id, name, email, jobRole)
+        `)
+        .single()
+
+      if (error) throw error
+      return NextResponse.json(data, { status: 201 })
+    }
+
+    // Close any currently active record for the TARGET user (no endedAt)
     const { data: active } = await supabaseAdmin
       .from('Attendance')
       .select('*')
-      .eq('userId', sessionUserId)
+      .eq('userId', userIdToUpdate)
       .is('endedAt', null)
-      .single()
+      .maybeSingle()
 
     if (active) {
       const now = new Date()
@@ -90,19 +135,28 @@ export async function POST(request: Request) {
       return NextResponse.json({ departed: true })
     }
 
-    // Create new record
+    // Create new record for the TARGET user
     const now = new Date()
+    const insertData: any = {
+      id: nanoid(),
+      userId: userIdToUpdate,
+      status,
+      startedAt: startedAt || now.toISOString(),
+      note: note || null,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    }
+    
+    if (endedAt) {
+      insertData.endedAt = endedAt
+      const started = new Date(insertData.startedAt)
+      const ended = new Date(endedAt)
+      insertData.durationMin = parseFloat(((ended.getTime() - started.getTime()) / 60000).toFixed(2))
+    }
+
     const { data, error } = await supabaseAdmin
       .from('Attendance')
-      .insert({
-        id: nanoid(),
-        userId: sessionUserId,
-        status,
-        startedAt: now.toISOString(),
-        note: note || null,
-        createdAt: now.toISOString(),
-        updatedAt: now.toISOString(),
-      })
+      .insert(insertData)
       .select(`
         *,
         user:User!Attendance_userId_fkey (
