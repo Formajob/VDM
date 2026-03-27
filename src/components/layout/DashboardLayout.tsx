@@ -6,7 +6,8 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
   LayoutDashboard, Clock, Settings, FileText,
-  LogOut, Users, Zap, Menu, X, FileText as FileIcon
+  LogOut, Users, Zap, Menu, X, FileText as FileIcon,
+  Calendar
 } from 'lucide-react'
 import { useState } from 'react'
 import { useDemoMode, DemoUser } from '@/hooks/useDemoMode'
@@ -22,12 +23,14 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const pathname = usePathname()
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
-  const user: DemoUser | null = session?.user as DemoUser || demoUser
+  const user: DemoUser | null = (session?.user as DemoUser) || demoUser || null
   const isAdmin = user?.role === 'ADMIN'
+  const isMember = user?.role === 'MEMBER'
 
   const navigation = [
     { label: 'Tableau de bord', href: '/dashboard', icon: LayoutDashboard },
     { label: 'Présences', href: '/attendance', icon: Clock },
+    { label: 'Planning', href: '/planning', icon: Calendar, memberOnly: true },
     { label: 'Projets VD', href: '/projects', icon: FileText },
     { label: 'Administration', href: '/admin', icon: Settings, adminOnly: true },
   ]
@@ -66,6 +69,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           <nav className="space-y-2 flex-1">
             {navigation.map((item) => {
               if (item.adminOnly && !isAdmin) return null
+              if (item.memberOnly && !isMember) return null
               const isActive = pathname === item.href
               const Icon = item.icon
               return (
