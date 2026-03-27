@@ -10,6 +10,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { toast } from 'sonner'
+
+import GaugeChart from '@/components/GaugeChart'
 import {
   Clock, Coffee, UtensilsCrossed, Users, BookOpen, Handshake,
   UserX, Palmtree, Play, AlertTriangle, Download, RefreshCw,
@@ -118,11 +120,11 @@ function RealtimeTab({ users }: { users: UserItem[] }) {
 
     const now = Date.now()
     // Filter out ADMIN users - they don't clock in/out
-const activeUsers = users.filter(u => {
-  const isAdminEmail = u.email?.toLowerCase().includes('admin')
-  const isAdminRole = u.jobRole === 'ADMIN'
-  return !isAdminEmail && !isAdminRole
-})
+    const activeUsers = users.filter(u => {
+      const isAdminEmail = u.email?.toLowerCase().includes('admin')
+      const isAdminRole = u.jobRole === 'ADMIN'
+      return !isAdminEmail && !isAdminRole
+    })
     const statuses: MemberStatus[] = activeUsers.map(user => {
       const recs = byUser.get(user.id) || []
       const active = recs.find(r => !r.endedAt) || null
@@ -342,74 +344,74 @@ function ManagementTab({ users }: { users: UserItem[] }) {
   useEffect(() => { fetchRecords() }, [fetchRecords])
 
   const handleAdd = async () => {
-  try {
-    const isFullDay = FULLDAY_STATUSES.includes(form.status)
-    const body: any = {
-      status: form.status,
-      targetUserId: selectedUser,
-      forceStatus: true,  // ← AJOUTÉ : indique à l'API que c'est un admin qui force le statut
-      note: form.note || null,
-    }
+    try {
+      const isFullDay = FULLDAY_STATUSES.includes(form.status)
+      const body: any = {
+        status: form.status,
+        targetUserId: selectedUser,
+        forceStatus: true,
+        note: form.note || null,
+      }
 
-    if (isFullDay) {
-      body.fullDay = true
-      body.startedAt = selectedDate
-    } else {
-      body.startedAt = `${selectedDate}T${form.startedAt}:00`
-      if (form.endedAt) body.endedAt = `${selectedDate}T${form.endedAt}:00`
-    }
+      if (isFullDay) {
+        body.fullDay = true
+        body.startedAt = selectedDate
+      } else {
+        body.startedAt = `${selectedDate}T${form.startedAt}:00`
+        if (form.endedAt) body.endedAt = `${selectedDate}T${form.endedAt}:00`
+      }
 
-    const res = await fetch('/api/attendance', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    if (!res.ok) throw new Error()
-    toast.success('Entrée ajoutée')
-    setShowAdd(false)
-    setForm({ status: 'EN_PRODUCTION', startedAt: '', endedAt: '', note: '' })
-    fetchRecords()
-  } catch {
-    toast.error("Erreur lors de l'ajout")
+      const res = await fetch('/api/attendance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) throw new Error()
+      toast.success('Entrée ajoutée')
+      setShowAdd(false)
+      setForm({ status: 'EN_PRODUCTION', startedAt: '', endedAt: '', note: '' })
+      fetchRecords()
+    } catch {
+      toast.error("Erreur lors de l'ajout")
+    }
   }
-}
 
-const handleEdit = async () => {
-  if (!editRecord) return
-  try {
-    // 1. Supprimer l'ancienne entrée
-    await fetch(`/api/attendance/${editRecord.id}`, { method: 'DELETE' })
-    
-    // 2. Créer la nouvelle entrée avec les données mises à jour
-    const isFullDay = FULLDAY_STATUSES.includes(form.status)
-    const body: any = {
-      status: form.status,
-      targetUserId: selectedUser,
-      forceStatus: true,  // ← AJOUTÉ : essentiel pour que l'API cible le bon utilisateur
-      note: form.note || null,
+  const handleEdit = async () => {
+    if (!editRecord) return
+    try {
+      // 1. Supprimer l'ancienne entrée
+      await fetch(`/api/attendance/${editRecord.id}`, { method: 'DELETE' })
+      
+      // 2. Créer la nouvelle entrée avec les données mises à jour
+      const isFullDay = FULLDAY_STATUSES.includes(form.status)
+      const body: any = {
+        status: form.status,
+        targetUserId: selectedUser,
+        forceStatus: true,
+        note: form.note || null,
+      }
+
+      if (isFullDay) {
+        body.fullDay = true
+        body.startedAt = selectedDate
+      } else {
+        body.startedAt = `${selectedDate}T${form.startedAt}:00`
+        if (form.endedAt) body.endedAt = `${selectedDate}T${form.endedAt}:00`
+      }
+
+      const res = await fetch('/api/attendance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) throw new Error()
+      toast.success('Entrée modifiée')
+      setEditRecord(null)
+      fetchRecords()
+    } catch {
+      toast.error('Erreur lors de la modification')
     }
-
-    if (isFullDay) {
-      body.fullDay = true
-      body.startedAt = selectedDate
-    } else {
-      body.startedAt = `${selectedDate}T${form.startedAt}:00`
-      if (form.endedAt) body.endedAt = `${selectedDate}T${form.endedAt}:00`
-    }
-
-    const res = await fetch('/api/attendance', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    if (!res.ok) throw new Error()
-    toast.success('Entrée modifiée')
-    setEditRecord(null)
-    fetchRecords()
-  } catch {
-    toast.error('Erreur lors de la modification')
   }
-}
 
   const handleDelete = async (id: string) => {
     if (!confirm('Supprimer cette entrée ?')) return
@@ -575,6 +577,182 @@ const handleEdit = async () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  )
+}
+
+// ── History Tab ───────────────────────────────────────────────────────────────
+
+function HistoryTab({ users }: { users: UserItem[] }) {
+  const [selectedUser, setSelectedUser] = useState<string>('')
+  const [selectedDate, setSelectedDate] = useState(todayStr())
+  const [records, setRecords] = useState<AttendanceRecord[]>([])
+  const [loading, setLoading] = useState(false)
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null)
+
+  const fetchRecords = useCallback(async () => {
+    if (!selectedUser) return
+    setLoading(true)
+    const res = await fetch(`/api/attendance?userId=${selectedUser}&date=${selectedDate}`)
+    if (res.ok) setRecords(await res.json())
+    setLoading(false)
+  }, [selectedUser, selectedDate])
+
+  useEffect(() => { fetchRecords() }, [fetchRecords])
+
+  const handleSort = (key: string) => {
+    setSortConfig(prev => ({
+      key,
+      direction: prev?.key === key && prev.direction === 'asc' ? 'desc' : 'asc'
+    }))
+  }
+
+  const sortedRecords = [...records].sort((a, b) => {
+    if (!sortConfig) return 0
+    const { key, direction } = sortConfig
+    let aVal: any, bVal: any
+    
+    switch(key) {
+      case 'date': aVal = a.startedAt; bVal = b.startedAt; break
+      case 'status': aVal = STATUS_CONFIG[a.status]?.label; bVal = STATUS_CONFIG[b.status]?.label; break
+      case 'start': aVal = a.startedAt; bVal = b.startedAt; break
+      case 'end': aVal = a.endedAt || ''; bVal = b.endedAt || ''; break
+      case 'duration': aVal = a.durationMin || 0; bVal = b.durationMin || 0; break
+      case 'note': aVal = a.note || ''; bVal = b.note || ''; break
+      default: return 0
+    }
+    
+    if (aVal < bVal) return direction === 'asc' ? -1 : 1
+    if (aVal > bVal) return direction === 'asc' ? 1 : -1
+    return 0
+  })
+
+  const getAlertForRecord = (r: AttendanceRecord) => {
+    const cfg = STATUS_CONFIG[r.status]
+    if (!cfg?.limitMin || !r.durationMin) return null
+    if (r.durationMin > cfg.limitMin) {
+      return `Dépassement +${fmtDur(r.durationMin - cfg.limitMin)}`
+    }
+    return null
+  }
+
+  // Calculate percentages for gauge
+  const totalDuration = records.reduce((acc, r) => acc + (r.durationMin || 0), 0)
+  const shiftDuration = records.filter(r => r.status === 'EN_PRODUCTION').reduce((acc, r) => acc + (r.durationMin || 0), 0)
+  const pauseDuration = records.filter(r => r.status === 'PAUSE').reduce((acc, r) => acc + (r.durationMin || 0), 0)
+  const lunchDuration = records.filter(r => r.status === 'LUNCH').reduce((acc, r) => acc + (r.durationMin || 0), 0)
+  const otherDuration = totalDuration - shiftDuration - pauseDuration - lunchDuration
+
+  const shiftPercent = totalDuration > 0 ? (shiftDuration / totalDuration) * 100 : 0
+  const pausePercent = totalDuration > 0 ? (pauseDuration / totalDuration) * 100 : 0
+  const lunchPercent = totalDuration > 0 ? (lunchDuration / totalDuration) * 100 : 0
+  const otherPercent = totalDuration > 0 ? (otherDuration / totalDuration) * 100 : 0
+
+  return (
+    <div className="space-y-4">
+      <div className="grid sm:grid-cols-2 gap-4">
+        <div className="space-y-1">
+          <Label className="text-xs">Membre</Label>
+          <Select value={selectedUser} onValueChange={setSelectedUser}>
+            <SelectTrigger><SelectValue placeholder="Choisir un membre" /></SelectTrigger>
+            <SelectContent>
+              {users.filter(u => u.jobRole !== 'ADMIN' && !u.email?.toLowerCase().includes('admin')).map(u => (
+                <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Date</Label>
+          <Input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} />
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-8 text-muted-foreground text-sm">Chargement...</div>
+      ) : records.length === 0 ? (
+        <div className="text-center py-8 text-muted-foreground text-sm border-2 border-dashed rounded-xl">
+          {selectedUser ? 'Aucune entrée pour cette date' : 'Sélectionnez un membre'}
+        </div>
+      ) : (
+        <>
+          <div className="overflow-x-auto rounded-xl border border-slate-200">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50">
+                <tr>
+                  {[
+                    { key: 'date', label: 'Date' },
+                    { key: 'status', label: 'Statut' },
+                    { key: 'start', label: 'Heure début' },
+                    { key: 'end', label: 'Heure fin' },
+                    { key: 'duration', label: 'Durée' },
+                    { key: 'alert', label: 'Alerte' },
+                    { key: 'note', label: 'Note' },
+                  ].map(col => (
+                    <th
+                      key={col.key}
+                      className="text-left px-4 py-3 font-medium text-muted-foreground cursor-pointer hover:bg-slate-100"
+                      onClick={() => handleSort(col.key)}
+                    >
+                      {col.label}
+                      {sortConfig?.key === col.key && (
+                        <span className="ml-1">{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+                      )}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {sortedRecords.map((r, i) => {
+                  const cfg = STATUS_CONFIG[r.status]
+                  const alert = getAlertForRecord(r)
+                  return (
+                    <tr key={r.id} className={`border-t border-slate-100 hover:bg-slate-50 ${alert ? 'bg-red-50/30' : ''}`}>
+                      <td className="px-4 py-3 text-muted-foreground">{r.startedAt.split('T')[0]}</td>
+                      <td className="px-4 py-3">
+                        <Badge className={`${cfg?.bg} ${cfg?.color} border-0 text-xs gap-1`}>
+                          {cfg?.icon}{cfg?.label}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-3 font-mono text-xs">{fmtTime(r.startedAt)}</td>
+                      <td className="px-4 py-3 font-mono text-xs">{r.endedAt ? fmtTime(r.endedAt) : '—'}</td>
+                      <td className="px-4 py-3 font-mono text-xs">{r.durationMin ? fmtDur(r.durationMin) : '—'}</td>
+                      <td className="px-4 py-3">
+                        {alert ? (
+                          <span className="text-xs text-red-600 flex items-center gap-1">
+                            <AlertTriangle className="w-3 h-3" />{alert}
+                          </span>
+                        ) : <span className="text-xs text-emerald-600">✓</span>}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground text-xs italic">{r.note || '—'}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Gauge Chart */}
+          {totalDuration > 0 && (
+            <Card className="border-2 border-indigo-200">
+              <CardHeader>
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Clock className="h-4 w-4 text-indigo-500" />
+                  Répartition du temps
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <GaugeChart 
+                  shiftPercent={shiftPercent}
+                  pausePercent={pausePercent}
+                  lunchPercent={lunchPercent}
+                  otherPercent={otherPercent}
+                />
+              </CardContent>
+            </Card>
+          )}
+        </>
+      )}
     </div>
   )
 }
@@ -782,13 +960,13 @@ export default function AdminAttendanceView({ showOnlyRealtime = false }: { show
       {showOnlyRealtime ? (
         <RealtimeTab users={users} />
       ) : (
-        <Tabs defaultValue="realtime">
+        <Tabs defaultValue="history">
           <TabsList className="bg-gradient-to-r from-indigo-100 to-purple-100">
-            <TabsTrigger value="realtime" className="data-[state=active]:bg-white">Temps réel</TabsTrigger>
+            <TabsTrigger value="history" className="data-[state=active]:bg-white">Historique</TabsTrigger>
             <TabsTrigger value="manage" className="data-[state=active]:bg-white">Gestion</TabsTrigger>
             <TabsTrigger value="reports" className="data-[state=active]:bg-white">Rapports</TabsTrigger>
           </TabsList>
-          <TabsContent value="realtime" className="mt-4"><RealtimeTab users={users} /></TabsContent>
+          <TabsContent value="history" className="mt-4"><HistoryTab users={users} /></TabsContent>
           <TabsContent value="manage" className="mt-4"><ManagementTab users={users} /></TabsContent>
           <TabsContent value="reports" className="mt-4"><ReportsTab users={users} /></TabsContent>
         </Tabs>
