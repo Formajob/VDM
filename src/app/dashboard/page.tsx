@@ -17,6 +17,9 @@ import { toast } from 'sonner'
 import { useDemoMode, DemoUser } from '@/hooks/useDemoMode'
 import AttendanceSection from '@/components/AttendanceSection'
 
+
+
+
 interface Project {
   id: string
   name: string
@@ -156,7 +159,7 @@ export default function DashboardPage() {
           )}
         </div>
 
-       {/* Attendance Live Widget */}
+      {/* Attendance Live Widget */}
 {!isDemo && user?.id && (
   <div>
     <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
@@ -164,7 +167,7 @@ export default function DashboardPage() {
       {isAdmin ? "Présence de l'équipe (Temps réel)" : "Ma présence aujourd'hui"}
     </h2>
     {isAdmin ? (
-      <AdminAttendanceView />
+      <AdminAttendanceView showOnlyRealtime={true} />
     ) : (
       <AttendanceSection userId={user.id} />
     )}

@@ -741,7 +741,7 @@ function ReportsTab({ users }: { users: UserItem[] }) {
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 
-export default function AdminAttendanceView() {
+export default function AdminAttendanceView({ showOnlyRealtime = false }: { showOnlyRealtime?: boolean }) {
   const [users, setUsers] = useState<UserItem[]>([])
 
   useEffect(() => {
@@ -752,19 +752,25 @@ export default function AdminAttendanceView() {
 
   return (
     <div className="space-y-4">
-      <h2 className="text-xl font-bold flex items-center gap-2">
-        <Clock className="h-5 w-5 text-indigo-500" />Gestion des présences
-      </h2>
-      <Tabs defaultValue="realtime">
-        <TabsList className="bg-gradient-to-r from-indigo-100 to-purple-100">
-          <TabsTrigger value="realtime" className="data-[state=active]:bg-white">Temps réel</TabsTrigger>
-          <TabsTrigger value="manage" className="data-[state=active]:bg-white">Gestion</TabsTrigger>
-          <TabsTrigger value="reports" className="data-[state=active]:bg-white">Rapports</TabsTrigger>
-        </TabsList>
-        <TabsContent value="realtime" className="mt-4"><RealtimeTab users={users} /></TabsContent>
-        <TabsContent value="manage" className="mt-4"><ManagementTab users={users} /></TabsContent>
-        <TabsContent value="reports" className="mt-4"><ReportsTab users={users} /></TabsContent>
-      </Tabs>
+      {!showOnlyRealtime && (
+        <h2 className="text-xl font-bold flex items-center gap-2">
+          <Clock className="h-5 w-5 text-indigo-500" />Gestion des présences
+        </h2>
+      )}
+      {showOnlyRealtime ? (
+        <RealtimeTab users={users} />
+      ) : (
+        <Tabs defaultValue="realtime">
+          <TabsList className="bg-gradient-to-r from-indigo-100 to-purple-100">
+            <TabsTrigger value="realtime" className="data-[state=active]:bg-white">Temps réel</TabsTrigger>
+            <TabsTrigger value="manage" className="data-[state=active]:bg-white">Gestion</TabsTrigger>
+            <TabsTrigger value="reports" className="data-[state=active]:bg-white">Rapports</TabsTrigger>
+          </TabsList>
+          <TabsContent value="realtime" className="mt-4"><RealtimeTab users={users} /></TabsContent>
+          <TabsContent value="manage" className="mt-4"><ManagementTab users={users} /></TabsContent>
+          <TabsContent value="reports" className="mt-4"><ReportsTab users={users} /></TabsContent>
+        </Tabs>
+      )}
     </div>
   )
 }
