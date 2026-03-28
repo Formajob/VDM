@@ -7,30 +7,50 @@ import { Badge } from '@/components/ui/badge'
 import {
   LayoutDashboard, Clock, Settings, FileText,
   LogOut, Users, Zap, Menu, X, FileText as FileIcon,
-  Calendar
+  Calendar, Repeat, ChevronDown, ChevronUp
 } from 'lucide-react'
 import { useState } from 'react'
 import { useDemoMode, DemoUser } from '@/hooks/useDemoMode'
+
+interface NavItem {
+  label: string
+  href: string
+  icon: any
+  adminOnly?: boolean
+  memberOnly?: boolean
+  children?: { label: string; href: string; icon: any }[]
+}
 
 interface DashboardLayoutProps {
   children: React.ReactNode
 }
 
 export default function DashboardLayout({ children }: DashboardLayoutProps) {
-  const { data: session } = useSession()
+  const { data, status } = useSession()
   const { isDemo, demoUser, exitDemoMode } = useDemoMode()
   const router = useRouter()
   const pathname = usePathname()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [openSubmenu, setOpenSubmenu] = useState<string | null>(null)
 
-  const user: DemoUser | null = (session?.user as DemoUser) || demoUser || null
+  const user: DemoUser | null = (data?.user as DemoUser) || demoUser || null
   const isAdmin = user?.role === 'ADMIN'
   const isMember = user?.role === 'MEMBER'
 
-  const navigation = [
+  const navigation: NavItem[] = [
     { label: 'Tableau de bord', href: '/dashboard', icon: LayoutDashboard },
     { label: 'Présences', href: '/attendance', icon: Clock },
-    { label: 'Planning', href: '/planning', icon: Calendar, memberOnly: true },
+    { 
+      label: 'Planning', 
+      href: '/planning', 
+      icon: Calendar,
+      children: isAdmin ? [
+        { label: 'Gestion Planning', href: '/admin/planning/management', icon: Calendar },
+        { label: 'Validation Swaps', href: '/admin/planning/swaps', icon: Repeat },
+        { label: 'Rapports', href: '/admin/planning/reports', icon: FileText },
+        { label: 'Points Ramassage', href: '/admin/planning/pickup', icon: Users },
+      ] : undefined
+    },
     { label: 'Projets VD', href: '/projects', icon: FileText },
     { label: 'Administration', href: '/admin', icon: Settings, adminOnly: true },
   ]
@@ -41,6 +61,15 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       router.push('/')
     } else {
       signOut({ callbackUrl: '/' })
+    }
+  }
+
+  const handleNavClick = (href: string, hasChildren?: boolean) => {
+    if (hasChildren) {
+      setOpenSubmenu(openSubmenu === href ? null : href)
+    } else {
+      router.push(href)
+      setSidebarOpen(false)
     }
   }
 
@@ -66,37 +95,68 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           </div>
 
           {/* Navigation */}
-          <nav className="space-y-2 flex-1">
+          <nav className="space-y-1 flex-1 overflow-y-auto">
             {navigation.map((item) => {
               if (item.adminOnly && !isAdmin) return null
-              if (item.memberOnly && !isMember) return null
-              const isActive = pathname === item.href
+              
+              const isActive = pathname === item.href || pathname?.startsWith(item.href + '/')
+              const hasChildren = item.children && item.children.length > 0
+              const isSubmenuOpen = openSubmenu === item.href
               const Icon = item.icon
+
               return (
-                <Button
-                  key={item.href}
-                  variant="ghost"
-                  className={`w-full justify-start gap-3 ${
-                    isActive
-                      ? 'bg-gradient-to-r from-indigo-100 to-purple-100 text-indigo-700'
-                      : 'hover:bg-indigo-50'
-                  }`}
-                  onClick={() => {
-                    router.push(item.href)
-                    setSidebarOpen(false)
-                  }}
-                >
-                  <Icon className="h-4 w-4" />
-                  {item.label}
-                </Button>
+                <div key={item.href}>
+                  <Button
+                    variant="ghost"
+                    className={`w-full justify-start gap-3 ${
+                      isActive && !hasChildren
+                        ? 'bg-gradient-to-r from-indigo-100 to-purple-100 text-indigo-700'
+                        : 'hover:bg-indigo-50'
+                    }`}
+                    onClick={() => handleNavClick(item.href, hasChildren)}
+                  >
+                    <Icon className="h-4 w-4" />
+                    <span className="flex-1 text-left">{item.label}</span>
+                    {hasChildren && (
+                      isSubmenuOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />
+                    )}
+                  </Button>
+
+                  {/* Submenu */}
+                  {hasChildren && isSubmenuOpen && (
+                    <div className="ml-4 mt-1 space-y-1 border-l-2 border-indigo-200 pl-3">
+                      {item.children?.map((child) => {
+                        const childIcon = child.icon
+                        const childActive = pathname === child.href
+                        return (
+                          <Button
+                            key={child.href}
+                            variant="ghost"
+                            size="sm"
+                            className={`w-full justify-start gap-2 text-xs h-8 ${
+                              childActive 
+                                ? 'text-indigo-700 bg-indigo-50 font-medium' 
+                                : 'text-muted-foreground hover:text-indigo-600'
+                            }`}
+                            onClick={() => {
+                              router.push(child.href)
+                              setSidebarOpen(false)
+                            }}
+                          >
+                            {childIcon && (() => { const Icon = childIcon; return <Icon className="w-3 h-3" /> })()}
+                            {child.label}
+                          </Button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
               )
             })}
           </nav>
 
-          
-
           {/* User info */}
-          <div className="border-t border-indigo-100 pt-4">
+          <div className="border-t border-indigo-100 pt-4 mt-auto">
             <div className="flex items-center gap-3 mb-4">
               <div className="h-10 w-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
                 <Users className="h-5 w-5 text-white" />

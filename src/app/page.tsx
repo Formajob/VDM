@@ -175,7 +175,78 @@ export default function HomePage() {
           </Card>
         </div>
       </section>
+{/* Top Performers */}
+<section className="container mx-auto px-4 py-12">
+  <div className="max-w-4xl mx-auto">
+    <div className="text-center mb-10">
+      <Badge className="bg-gradient-to-r from-amber-500 to-orange-500 text-white border-0 text-sm px-4 py-1 mb-4">
+        🏆 Top Performers
+      </Badge>
+      <h2 className="text-3xl font-bold bg-gradient-to-r from-amber-600 to-orange-600 bg-clip-text text-transparent">
+        Félicitations à nos champions
+      </h2>
+      <p className="text-muted-foreground mt-2">
+        L'excellence qui inspire toute l'équipe VDM
+      </p>
+    </div>
 
+    <div className="grid md:grid-cols-2 gap-8">
+      
+      {/* Top du mois passé */}
+      <div className="relative rounded-2xl border-2 border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/20 dark:to-orange-950/20 dark:border-amber-800 p-6 text-center shadow-lg shadow-amber-500/10">
+        <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+          <span className="bg-gradient-to-r from-amber-500 to-orange-500 text-white text-xs font-semibold px-3 py-1 rounded-full">
+            Mois passé
+          </span>
+        </div>
+        
+        {/* Photo — remplacez /photos/membre1.jpg par le vrai chemin */}
+        <div className="w-24 h-24 rounded-full mx-auto mb-4 mt-2 overflow-hidden border-4 border-amber-300 shadow-lg">
+         <img src="/photos/membre1.jpg" alt="Top performer" className="w-full h-full object-cover" />
+          {/* Une fois la photo prête, remplacez le div ci-dessus par :
+          <img src="/photos/membre1.jpg" alt="Top performer" className="w-full h-full object-cover" /> */}
+        </div>
+
+        <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-1">Outhman Bouderraja</h3>
+        <p className="text-sm text-amber-600 dark:text-amber-400 font-medium mb-4">⭐ Top Performer — Mois passé</p>
+        
+        <blockquote className="text-sm text-slate-600 dark:text-slate-300 italic leading-relaxed border-l-4 border-amber-400 pl-4 text-left">
+          "Votre engagement sans faille tout au long du mois a été une source d'inspiration pour toute l'équipe. 
+          Votre rigueur, votre sérieux et votre capacité à maintenir un niveau d'excellence constant prouvent 
+          que la réussite est le fruit du travail et de la persévérance. Continuez sur cette lancée — 
+          le meilleur est encore à venir !"
+        </blockquote>
+      </div>
+
+      {/* Top du mois en cours */}
+      <div className="relative rounded-2xl border-2 border-indigo-200 bg-gradient-to-br from-indigo-50 to-purple-50 dark:from-indigo-950/20 dark:to-purple-950/20 dark:border-indigo-800 p-6 text-center shadow-lg shadow-indigo-500/10">
+        <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+          <span className="bg-gradient-to-r from-indigo-500 to-purple-500 text-white text-xs font-semibold px-3 py-1 rounded-full">
+            Mois en cours
+          </span>
+        </div>
+
+        {/* Photo — remplacez /photos/membre2.jpg par le vrai chemin */}
+        <div className="w-24 h-24 rounded-full mx-auto mb-4 mt-2 overflow-hidden border-4 border-indigo-300 shadow-lg">
+          <img src="/photos/membre2.jpg" alt="Top performer" className="w-full h-full object-cover" />
+          {/* Une fois la photo prête, remplacez le div ci-dessus par :
+          <img src="/photos/membre2.jpg" alt="Top performer" className="w-full h-full object-cover" /> */}
+        </div>
+
+        <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-1">Asmaa Sellak</h3>
+        <p className="text-sm text-indigo-600 dark:text-indigo-400 font-medium mb-4">⭐ Top Performer — Mois en cours </p>
+        
+        <blockquote className="text-sm text-slate-600 dark:text-slate-300 italic leading-relaxed border-l-4 border-indigo-400 pl-4 text-left">
+          "En seulement quelques semaines, vous avez démontré ce que signifie vraiment l'excellence. 
+          Votre motivation, votre ponctualité et la qualité de votre travail élèvent le niveau de toute l'équipe. 
+          Vous êtes la preuve vivante que quand on s'investit pleinement, les résultats parlent d'eux-mêmes. 
+          À toute l'équipe — que cela vous inspire à donner le meilleur de vous-mêmes chaque jour !"
+        </blockquote>
+      </div>
+
+    </div>
+  </div>
+</section>
       {/* Announcements */}
       <section className="container mx-auto px-4 py-12">
         <div className="max-w-4xl mx-auto">
