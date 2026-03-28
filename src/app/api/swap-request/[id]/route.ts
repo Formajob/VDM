@@ -3,20 +3,25 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 
-export async function PATCH(request: Request, { params }: { params: { id: string } }) {
+export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    console.log('🔹 PATCH /api/swap-request/[id]', params.id)
+    // Next.js 15+: params is a Promise
+    const { id } = await params
+    
+    console.log('🔹 PATCH /api/swap-request/[id]', id)
     
     const session = await getServerSession(authOptions)
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const body = await request.json()
-    const { id } = params
     const userRole = (session.user as any).role
     const userId = (session.user as any).id
 
-    // Fetch swap request - use {  data, error }
-    const {  data: swap, error: fetchError } = await supabaseAdmin
+    console.log('User:', { userId, userRole })
+    console.log('Body:', body)
+
+    // ⚠️ CORRECT: { data: variableName, error }
+    const { data: swap, error: fetchError } = await supabaseAdmin
       .from('SwapRequest')
       .select('*')
       .eq('id', id)
@@ -32,7 +37,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       return NextResponse.json({ error: 'Swap request not found' }, { status: 404 })
     }
 
-    console.log('✅ Found swap:', { id: swap.id, status: swap.status, targetuserid: swap.targetuserid })
+    console.log('✅ Found swap:', { id: swap.id, status: swap.status })
 
     let updateData: any = { updatedat: new Date().toISOString() }
 
@@ -53,15 +58,15 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       if (body.adminStatus === 'ADMIN_APPROVED') {
         console.log('🔄 Swapping plannings...')
         
-        // Get both plannings - use {  data: xxx }
-        const {   data: reqPlanning } = await supabaseAdmin
+        // ⚠️ CORRECT: { data: variableName }
+        const { data: reqPlanning } = await supabaseAdmin
           .from('Planning')
           .select('*')
           .eq('userid', swap.requesterid)
           .eq('weekstart', swap.weekstart)
           .single()
 
-        const {   data: tgtPlanning } = await supabaseAdmin
+        const { data: tgtPlanning } = await supabaseAdmin
           .from('Planning')
           .select('*')
           .eq('userid', swap.targetuserid)
@@ -69,7 +74,6 @@ export async function PATCH(request: Request, { params }: { params: { id: string
           .single()
 
         if (reqPlanning && tgtPlanning) {
-          // Swap the data
           await supabaseAdmin
             .from('Planning')
             .update({
@@ -103,8 +107,8 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       }
     }
 
-    // Update the swap request
-    const {  data: updated, error: updateError } = await supabaseAdmin
+    // ⚠️ CORRECT: { data: variableName, error }
+    const { data: updated, error: updateError } = await supabaseAdmin
       .from('SwapRequest')
       .update(updateData)
       .eq('id', id)
@@ -124,15 +128,15 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   }
 }
 
-export async function GET(request: Request, { params }: { params: { id: string } }) {
+export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params
+    
     const session = await getServerSession(authOptions)
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-    const { id } = params
     
-    // Simple query - use {  data, error }
-    const {  data, error } = await supabaseAdmin
+    // ⚠️ CORRECT: { data, error }
+    const { data, error } = await supabaseAdmin
       .from('SwapRequest')
       .select('*')
       .eq('id', id)
@@ -140,9 +144,9 @@ export async function GET(request: Request, { params }: { params: { id: string }
 
     if (error) throw error
     
-    // Fetch user info separately if needed
     if (data) {
-      const {   data: users } = await supabaseAdmin
+      // ⚠️ CORRECT: { data: variableName }
+      const { data: users } = await supabaseAdmin
         .from('User')
         .select('id, name, email')
         .in('id', [data.requesterid, data.targetuserid])
@@ -161,3 +165,4 @@ export async function GET(request: Request, { params }: { params: { id: string }
     return NextResponse.json({ error: 'Failed to fetch' }, { status: 500 })
   }
 }
+
