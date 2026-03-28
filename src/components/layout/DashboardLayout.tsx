@@ -93,6 +93,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             })}
           </nav>
 
+          
+
           {/* User info */}
           <div className="border-t border-indigo-100 pt-4">
             <div className="flex items-center gap-3 mb-4">

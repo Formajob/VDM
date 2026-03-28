@@ -107,8 +107,8 @@ export default function LoginPage() {
             </div>
             <div className="text-xs text-center text-muted-foreground pt-2 border-t">
               <p className="font-medium mb-1">Comptes de démonstration :</p>
-              <p>Admin : admin@vdmanager.com / admin123</p>
-              <p>Membre : member@vdmanager.com / member123</p>
+        
+              <p>prenom@vdmanager.com / member123</p>
             </div>
           </CardFooter>
         </form>

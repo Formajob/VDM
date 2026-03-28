@@ -21,8 +21,8 @@ export async function POST(request: Request) {
         weekstart: body.weekStart,
         weekend: body.weekEnd,
         status: 'PENDING',
-        targetresponse: body.targetResponse,
-        adminnote: body.adminNote,
+        targetresponse: null,
+        adminnote: null,
         createdat: now.toISOString(),
         updatedat: now.toISOString(),
       })
@@ -42,19 +42,30 @@ export async function GET(request: Request) {
     const session = await getServerSession(authOptions)
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+    const userRole = (session.user as any).role
+    const userId = (session.user as any).id
+
     const { searchParams } = new URL(request.url)
-    const userId = searchParams.get('userId')
-    const type = searchParams.get('type')
+    const type = searchParams.get('type') // 'incoming', 'outgoing', 'admin'
 
     let query = supabaseAdmin
       .from('SwapRequest')
-      .select('*')
+      .select(`
+        *,
+        requester:User!SwapRequest_requesterid_fkey (id, name, email),
+        target:User!SwapRequest_targetuserid_fkey (id, name, email)
+      `)
       .order('createdat', { ascending: false })
 
-    if (type === 'requester') {
-      query = query.eq('requesterid', userId)
-    } else if (type === 'target') {
+    if (type === 'incoming' && userRole !== 'ADMIN') {
+      // Requests where I am the target
       query = query.eq('targetuserid', userId)
+    } else if (type === 'outgoing' && userRole !== 'ADMIN') {
+      // Requests where I am the requester
+      query = query.eq('requesterid', userId)
+    } else if (type === 'admin' || userRole === 'ADMIN') {
+      // Admin sees all pending approvals
+      query = query.in('status', ['TARGET_ACCEPTED', 'PENDING'])
     }
 
     const {  data, error } = await query
