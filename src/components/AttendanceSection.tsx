@@ -88,25 +88,8 @@ export default function AttendanceSection({ userId }: { userId: string }) {
     }
   }, [today])
 
-  // ✅ useEffect AVEC POLLING TOUTES LES 10 SECONDES (solution garantie)
-  useEffect(() => {
-    // 1️⃣ Fetch initial au montage
-    fetchRecords()
-    
-    // 2️⃣ ✅ Polling toutes les 10 secondes pour mises à jour auto
-    const interval = setInterval(() => {
-      console.log('🔄 Polling attendance updates...')
-      fetchRecords()
-    }, 10000)
-    
-    // 3️⃣ Cleanup au démontage
-    return () => {
-      console.log('🧹 Cleaning up polling interval')
-      clearInterval(interval)
-    }
-  }, [userId, fetchRecords])
+  useEffect(() => { fetchRecords() }, [fetchRecords])
 
-  // Timer pour l'elapsed time (mise à jour chaque seconde pour l'affichage)
   useEffect(() => {
     if (!activeRecord) { setElapsed(0); return }
     const start = new Date(activeRecord.startedAt + 'Z')
@@ -126,7 +109,7 @@ export default function AttendanceSection({ userId }: { userId: string }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          userId,  // ✅ userId pour l'API
+          userId,
           status 
         }),
       })
@@ -136,7 +119,6 @@ export default function AttendanceSection({ userId }: { userId: string }) {
       } else {
         toast.success(`Statut : ${STATUS_CONFIG[status as AttendanceStatus]?.label}`)
       }
-      // Refresh immédiat après action utilisateur
       await fetchRecords()
     } catch {
       toast.error('Erreur lors du changement de statut')
@@ -178,6 +160,7 @@ export default function AttendanceSection({ userId }: { userId: string }) {
         </CardHeader>
         <CardContent className="space-y-4">
 
+          {/* ✅ AFFICHAGE DU STATUT ACTUEL */}
           {isFullDayLocked && fullDayRecord && fullDayCfg ? (
             <div className={`rounded-xl p-4 ${fullDayCfg.bgColor} border ${fullDayCfg.borderColor}`}>
               <div className="flex items-center gap-3">
@@ -221,47 +204,74 @@ export default function AttendanceSection({ userId }: { userId: string }) {
               <p className="text-xs text-muted-foreground">Bonne fin de journée !</p>
             </div>
 
+          ) : records.length === 0 ? (
+            <div className="rounded-xl p-4 bg-slate-50 border-2 border-dashed border-slate-300 text-center">
+              <Clock className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+              <p className="text-sm font-medium text-slate-600">Aucun pointage aujourd'hui</p>
+              <p className="text-xs text-muted-foreground">Cliquez sur "Shift" pour commencer votre journée</p>
+            </div>
+
           ) : (
             <div className="rounded-xl p-4 bg-slate-50 border border-dashed border-slate-300 text-center">
               <p className="text-sm text-muted-foreground">Aucun statut actif — sélectionnez un statut ci-dessous</p>
             </div>
           )}
 
+          {/* ✅ BOUTONS DE CLOCK IN/OUT */}
           {!departed && !isFullDayLocked && (
             <>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {MEMBER_SELECTABLE_STATUSES.map(status => {
-                  const c = STATUS_CONFIG[status]
-                  const isActive = activeRecord?.status === status
-                  return (
-                    <button
-                      key={status}
-                      onClick={() => handleStatus(status)}
-                      disabled={loading || isActive}
-                      className={`
-                        flex flex-col items-center gap-1 p-3 rounded-xl border-2 text-xs font-medium
-                        transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed
-                        ${isActive
-                          ? `${c.borderColor} ${c.bgColor} ${c.color} ring-2 ring-offset-1`
-                          : `border-slate-200 ${c.bgColor} ${c.color}`
-                        }
-                      `}
-                    >
-                      <span className={c.color}>{c.icon}</span>
-                      <span>{c.label}</span>
-                      {c.limitMin && <span className="text-[10px] opacity-60">{c.description}</span>}
-                    </button>
-                  )
-                })}
-              </div>
-              <Button
-                variant="outline"
-                className="w-full gap-2 border-red-200 hover:border-red-400 hover:bg-red-50 text-red-600"
-                onClick={() => handleStatus('DEPART')}
-                disabled={loading}
-              >
-                <LogOut className="w-4 h-4" />Enregistrer mon départ
-              </Button>
+              {/* Si aucun pointage, afficher un gros bouton "Commencer le shift" */}
+              {records.length === 0 ? (
+                <div className="mt-4">
+                  <Button
+                    className="w-full gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white hover:from-indigo-700 hover:to-purple-700 py-6 text-lg font-semibold"
+                    onClick={() => handleStatus('EN_PRODUCTION')}
+                    disabled={loading}
+                  >
+                    <Play className="w-5 h-5" />Commencer mon shift
+                  </Button>
+                  <p className="text-xs text-center text-muted-foreground mt-3">
+                    Cliquez pour enregistrer le début de votre journée (08:00-17:00 par défaut)
+                  </p>
+                </div>
+              ) : (
+                /* Sinon afficher les boutons de changement de statut */
+                <>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {MEMBER_SELECTABLE_STATUSES.map(status => {
+                      const c = STATUS_CONFIG[status]
+                      const isActive = activeRecord?.status === status
+                      return (
+                        <button
+                          key={status}
+                          onClick={() => handleStatus(status)}
+                          disabled={loading || isActive}
+                          className={`
+                            flex flex-col items-center gap-1 p-3 rounded-xl border-2 text-xs font-medium
+                            transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed
+                            ${isActive
+                              ? `${c.borderColor} ${c.bgColor} ${c.color} ring-2 ring-offset-1`
+                              : `border-slate-200 ${c.bgColor} ${c.color}`
+                            }
+                          `}
+                        >
+                          <span className={c.color}>{c.icon}</span>
+                          <span>{c.label}</span>
+                          {c.limitMin && <span className="text-[10px] opacity-60">{c.description}</span>}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <Button
+                    variant="outline"
+                    className="w-full gap-2 border-red-200 hover:border-red-400 hover:bg-red-50 text-red-600"
+                    onClick={() => handleStatus('DEPART')}
+                    disabled={loading}
+                  >
+                    <LogOut className="w-4 h-4" />Enregistrer mon départ
+                  </Button>
+                </>
+              )}
             </>
           )}
         </CardContent>

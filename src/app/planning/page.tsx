@@ -17,10 +17,10 @@ import { toast } from 'sonner'
 import { Calendar, Users, Repeat, Palmtree, ChevronLeft, ChevronRight, Clock } from 'lucide-react'
 import { useDemoMode, DemoUser } from '@/hooks/useDemoMode'
 
-interface PlanningDay {
-  shift: string
-  pause?: string
-  lunch?: string
+interface PlanningDayRaw {
+  startTime?: string
+  endTime?: string
+  shiftType?: 'NORMAL' | 'NIGHT' | 'OFF' | 'VAC'
   isOff?: boolean
 }
 
@@ -29,16 +29,15 @@ interface WeeklyPlanning {
   userid: string
   weekstart: string
   weekend: string
-  monday: PlanningDay | null
-  tuesday: PlanningDay | null
-  wednesday: PlanningDay | null
-  thursday: PlanningDay | null
-  friday: PlanningDay | null
-  saturday: PlanningDay | null
-  sunday: PlanningDay | null
+  monday: PlanningDayRaw | null
+  tuesday: PlanningDayRaw | null
+  wednesday: PlanningDayRaw | null
+  thursday: PlanningDayRaw | null
+  friday: PlanningDayRaw | null
+  saturday: PlanningDayRaw | null
+  sunday: PlanningDayRaw | null
   user?: { name: string; email: string }
 }
-
 interface LeaveBalance {
   annualdays: number
   exceptionaldays: number
@@ -75,23 +74,42 @@ function formatWeekRange(weekStart: string, weekEnd: string): string {
 
 // ── Planning Table Component ─────────────────────────────────────────────────
 
+// ── Planning Table Component (CORRIGÉ) ──────────────────────────────────────
+
+interface PlanningDayRaw {
+  startTime?: string
+  endTime?: string
+  shiftType?: string
+  isOff?: boolean
+}
+
 function PlanningTable({ planning, compact = false }: { planning: WeeklyPlanning; compact?: boolean }) {
   const renderDay = (day: string) => {
-    const dayData = planning[day as keyof WeeklyPlanning] as PlanningDay | null
+    // ✅ Lire le format JSON de la BDD
+    const dayData = planning[day as keyof WeeklyPlanning] as PlanningDayRaw | null
     
-    if (!dayData || !dayData?.shift) {
+    // Si pas de données ou shiftType = OFF/VAC
+    if (!dayData || !dayData.startTime || dayData.shiftType === 'OFF' || dayData.shiftType === 'VAC') {
+      const label = dayData?.shiftType === 'VAC' ? 'VAC' : 'OFF'
+      const colorClass = dayData?.shiftType === 'VAC' ? 'text-yellow-600 bg-yellow-50' : 'text-slate-500 bg-slate-50'
+      
       return (
-        <div className="text-center py-2 bg-slate-50 rounded text-xs text-muted-foreground">
-          OFF
+        <div className={`text-center py-2 rounded text-xs font-medium ${colorClass}`}>
+          {label}
         </div>
       )
     }
     
+    // ✅ Formater l'affichage : "08:00-17:00"
+    const shiftLabel = `${dayData.startTime}-${dayData.endTime}`
+    const isNight = dayData.shiftType === 'NIGHT'
+    
     return (
       <div className="text-center py-2">
-        <div className="flex items-center justify-center gap-1 text-indigo-600">
+        <div className={`flex flex-col items-center gap-1 ${isNight ? 'text-purple-600' : 'text-indigo-600'}`}>
           <Clock className="w-3 h-3" />
-          <span className="font-medium text-sm">{dayData.shift}</span>
+          <span className="font-medium text-sm">{shiftLabel}</span>
+          {isNight && <span className="text-[10px] text-purple-500">Nuit</span>}
         </div>
       </div>
     )

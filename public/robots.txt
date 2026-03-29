@@ -20,7 +20,7 @@ Allow: /
  
 cd C:\Users\User18\Desktop\VDM
 git add .
-git commit -m "feat: live filtre + planning reel semaine 29/3"
+git commit -m "feat: correction : attendance vide=shift member"
 git push origin main
 
  */}
