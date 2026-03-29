@@ -37,23 +37,32 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const isAdmin = user?.role === 'ADMIN'
   const isMember = user?.role === 'MEMBER'
 
-  const navigation: NavItem[] = [
-    { label: 'Tableau de bord', href: '/dashboard', icon: LayoutDashboard },
-    { label: 'Présences', href: '/attendance', icon: Clock },
-    { 
-      label: 'Planning', 
-      href: '/planning', 
-      icon: Calendar,
-      children: isAdmin ? [
-        { label: 'Gestion Planning', href: '/admin/planning/management', icon: Calendar },
-        { label: 'Validation Swaps', href: '/admin/planning/swaps', icon: Repeat },
-        { label: 'Rapports', href: '/admin/planning/reports', icon: FileText },
-        { label: 'Points Ramassage', href: '/admin/planning/pickup', icon: Users },
-      ] : undefined
-    },
-    { label: 'Projets VD', href: '/projects', icon: FileText },
-    { label: 'Administration', href: '/admin', icon: Settings, adminOnly: true },
-  ]
+ const navigation: NavItem[] = [
+  { label: 'Tableau de bord', href: '/dashboard', icon: LayoutDashboard },
+  { 
+    label: 'Présences', 
+    href: '/attendance', 
+    icon: Clock,
+    children: isAdmin ? [
+      { label: 'Historique', href: '/admin/attendance/history', icon: Clock },
+      { label: 'Gestion', href: '/admin/attendance/management', icon: Settings },
+      { label: 'Rapports', href: '/admin/attendance/reports', icon: FileText },
+    ] : undefined
+  },
+  { 
+    label: 'Planning', 
+    href: '/planning', 
+    icon: Calendar,
+    children: isAdmin ? [
+      { label: 'Gestion Planning', href: '/admin/planning/management', icon: Calendar },
+      { label: 'Validation Swaps', href: '/admin/planning/swaps', icon: Repeat },
+      { label: 'Rapports', href: '/admin/planning/reports', icon: FileText },
+      { label: 'Points Ramassage', href: '/admin/planning/pickup', icon: Users },
+    ] : undefined
+  },
+  { label: 'Projets VD', href: '/projects', icon: FileText },
+  { label: 'Administration', href: '/admin', icon: Settings, adminOnly: true },
+]
 
   const handleSignOut = () => {
     if (isDemo) {

@@ -69,23 +69,44 @@ export default function AttendanceSection({ userId }: { userId: string }) {
   const today = new Date().toISOString().split('T')[0]
 
   const fetchRecords = useCallback(async () => {
-    const res = await fetch(`/api/attendance?date=${today}`)
-    if (!res.ok) return
-    const data: AttendanceRecord[] = await res.json()
-    setRecords(data)
+    try {
+      const res = await fetch(`/api/attendance?date=${today}`)
+      if (!res.ok) return
+      const data: AttendanceRecord[] = await res.json()
+      setRecords(data)
 
-    const active = data.find(r => !r.endedAt) || null
-    setActiveRecord(active)
+      const active = data.find(r => !r.endedAt) || null
+      setActiveRecord(active)
 
-    const hasFullDay = data.some(r => FULLDAY_STATUSES.includes(r.status))
-    setIsFullDayLocked(hasFullDay)
+      const hasFullDay = data.some(r => FULLDAY_STATUSES.includes(r.status))
+      setIsFullDayLocked(hasFullDay)
 
-    const hasDeparted = data.length > 0 && !active && !hasFullDay && data.some(r => r.endedAt)
-    setDeparted(hasDeparted)
+      const hasDeparted = data.length > 0 && !active && !hasFullDay && data.some(r => r.endedAt)
+      setDeparted(hasDeparted)
+    } catch (error) {
+      console.error('Error fetching attendance:', error)
+    }
   }, [today])
 
-  useEffect(() => { fetchRecords() }, [fetchRecords])
+  // ✅ useEffect AVEC POLLING TOUTES LES 10 SECONDES (solution garantie)
+  useEffect(() => {
+    // 1️⃣ Fetch initial au montage
+    fetchRecords()
+    
+    // 2️⃣ ✅ Polling toutes les 10 secondes pour mises à jour auto
+    const interval = setInterval(() => {
+      console.log('🔄 Polling attendance updates...')
+      fetchRecords()
+    }, 10000)
+    
+    // 3️⃣ Cleanup au démontage
+    return () => {
+      console.log('🧹 Cleaning up polling interval')
+      clearInterval(interval)
+    }
+  }, [userId, fetchRecords])
 
+  // Timer pour l'elapsed time (mise à jour chaque seconde pour l'affichage)
   useEffect(() => {
     if (!activeRecord) { setElapsed(0); return }
     const start = new Date(activeRecord.startedAt + 'Z')
@@ -104,7 +125,10 @@ export default function AttendanceSection({ userId }: { userId: string }) {
       const res = await fetch('/api/attendance', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ 
+          userId,  // ✅ userId pour l'API
+          status 
+        }),
       })
       if (!res.ok) throw new Error()
       if (status === 'DEPART') {
@@ -112,6 +136,7 @@ export default function AttendanceSection({ userId }: { userId: string }) {
       } else {
         toast.success(`Statut : ${STATUS_CONFIG[status as AttendanceStatus]?.label}`)
       }
+      // Refresh immédiat après action utilisateur
       await fetchRecords()
     } catch {
       toast.error('Erreur lors du changement de statut')

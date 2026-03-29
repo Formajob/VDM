@@ -175,9 +175,10 @@ export default function HomePage() {
           </Card>
         </div>
       </section>
+
 {/* Top Performers */}
 <section className="container mx-auto px-4 py-12">
-  <div className="max-w-4xl mx-auto">
+  <div className="max-w-5xl mx-auto">
     <div className="text-center mb-10">
       <Badge className="bg-gradient-to-r from-amber-500 to-orange-500 text-white border-0 text-sm px-4 py-1 mb-4">
         🏆 Top Performers
@@ -190,63 +191,132 @@ export default function HomePage() {
       </p>
     </div>
 
-    <div className="grid md:grid-cols-2 gap-8">
-      
-      {/* Top du mois passé */}
-      <div className="relative rounded-2xl border-2 border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/20 dark:to-orange-950/20 dark:border-amber-800 p-6 text-center shadow-lg shadow-amber-500/10">
-        <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-          <span className="bg-gradient-to-r from-amber-500 to-orange-500 text-white text-xs font-semibold px-3 py-1 rounded-full">
-            Mois passé
-          </span>
-        </div>
-        
-        {/* Photo — remplacez /photos/membre1.jpg par le vrai chemin */}
-        <div className="w-24 h-24 rounded-full mx-auto mb-4 mt-2 overflow-hidden border-4 border-amber-300 shadow-lg">
-         <img src="/photos/membre1.jpg" alt="Top performer" className="w-full h-full object-cover" />
-          {/* Une fois la photo prête, remplacez le div ci-dessus par :
-          <img src="/photos/membre1.jpg" alt="Top performer" className="w-full h-full object-cover" /> */}
-        </div>
-
-        <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-1">Outhman Bouderraja</h3>
-        <p className="text-sm text-amber-600 dark:text-amber-400 font-medium mb-4">⭐ Top Performer — Mois passé</p>
-        
-        <blockquote className="text-sm text-slate-600 dark:text-slate-300 italic leading-relaxed border-l-4 border-amber-400 pl-4 text-left">
-          "Votre engagement sans faille tout au long du mois a été une source d'inspiration pour toute l'équipe. 
-          Votre rigueur, votre sérieux et votre capacité à maintenir un niveau d'excellence constant prouvent 
-          que la réussite est le fruit du travail et de la persévérance. Continuez sur cette lancée — 
-          le meilleur est encore à venir !"
-        </blockquote>
+    {/* Mois passé */}
+    <div className="mb-10">
+      <div className="flex items-center gap-3 mb-6">
+        <div className="h-px flex-1 bg-amber-200 dark:bg-amber-800" />
+        <span className="bg-gradient-to-r from-amber-500 to-orange-500 text-white text-sm font-semibold px-4 py-1.5 rounded-full whitespace-nowrap">
+          Mois passé
+        </span>
+        <div className="h-px flex-1 bg-amber-200 dark:bg-amber-800" />
       </div>
 
-      {/* Top du mois en cours */}
-      <div className="relative rounded-2xl border-2 border-indigo-200 bg-gradient-to-br from-indigo-50 to-purple-50 dark:from-indigo-950/20 dark:to-purple-950/20 dark:border-indigo-800 p-6 text-center shadow-lg shadow-indigo-500/10">
-        <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-          <span className="bg-gradient-to-r from-indigo-500 to-purple-500 text-white text-xs font-semibold px-3 py-1 rounded-full">
-            Mois en cours
-          </span>
+      <div className="grid md:grid-cols-2 gap-6">
+
+        {/* Top Rédaction — mois passé */}
+        <div className="relative rounded-2xl border-2 border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/20 dark:to-orange-950/20 dark:border-amber-800 p-6 text-center shadow-lg shadow-amber-500/10">
+          <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+            <span className="bg-gradient-to-r from-amber-500 to-orange-500 text-white text-xs font-semibold px-3 py-1 rounded-full whitespace-nowrap">
+              ✍️ Top Rédaction
+            </span>
+          </div>
+          <div className="w-24 h-24 rounded-full mx-auto mb-4 mt-2 overflow-hidden border-4 border-amber-300 shadow-lg">
+            <div className="w-full h-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white text-3xl font-bold">
+              <img src="/photos/red-mois-passe.jpg" alt="Top Rédaction" className="w-full h-full object-cover" />
+            </div>
+            {/* <img src="/photos/red-mois-passe.jpg" alt="Top Rédaction" className="w-full h-full object-cover" /> */}
+          </div>
+          <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-1">Outhman</h3>
+          <p className="text-sm text-amber-600 dark:text-amber-400 font-medium mb-4">⭐ Meilleur Rédacteur</p>
+          <blockquote className="text-sm text-slate-600 dark:text-slate-300 italic leading-relaxed border-l-4 border-amber-400 pl-4 text-left">
+            "Votre plume est une arme redoutable. Mois après mois, vous démontrez qu'une rédaction de qualité 
+            est le pilier de notre activité. Votre précision, votre rapidité et votre souci du détail 
+            font de vous un modèle pour toute l'équipe. À chacun d'entre nous d'élever son niveau 
+            à la hauteur de cet exemple !"
+          </blockquote>
         </div>
 
-        {/* Photo — remplacez /photos/membre2.jpg par le vrai chemin */}
-        <div className="w-24 h-24 rounded-full mx-auto mb-4 mt-2 overflow-hidden border-4 border-indigo-300 shadow-lg">
-          <img src="/photos/membre2.jpg" alt="Top performer" className="w-full h-full object-cover" />
-          {/* Une fois la photo prête, remplacez le div ci-dessus par :
-          <img src="/photos/membre2.jpg" alt="Top performer" className="w-full h-full object-cover" /> */}
+        {/* Top Studio — mois passé */}
+        <div className="relative rounded-2xl border-2 border-orange-200 bg-gradient-to-br from-orange-50 to-red-50 dark:from-orange-950/20 dark:to-red-950/20 dark:border-orange-800 p-6 text-center shadow-lg shadow-orange-500/10">
+          <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+            <span className="bg-gradient-to-r from-orange-500 to-red-500 text-white text-xs font-semibold px-3 py-1 rounded-full whitespace-nowrap">
+              🎙️ Top Studio
+            </span>
+          </div>
+          <div className="w-24 h-24 rounded-full mx-auto mb-4 mt-2 overflow-hidden border-4 border-orange-300 shadow-lg">
+            <div className="w-full h-full bg-gradient-to-br from-orange-400 to-red-500 flex items-center justify-center text-white text-3xl font-bold">
+             <img src="/photos/studio-mois-passe.jpg" alt="Top Studio" className="w-full h-full object-cover" />
+            </div>
+            {/* <img src="/photos/studio-mois-passe.jpg" alt="Top Studio" className="w-full h-full object-cover" /> */}
+          </div>
+          <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-1">Driss</h3>
+          <p className="text-sm text-orange-600 dark:text-orange-400 font-medium mb-4">⭐ Meilleur Studio</p>
+          <blockquote className="text-sm text-slate-600 dark:text-slate-300 italic leading-relaxed border-l-4 border-orange-400 pl-4 text-left">
+            "Votre maîtrise du studio est exceptionnelle. Chaque session livrée avec vous porte 
+            la marque d'un professionnel qui ne laisse rien au hasard. Votre oreille, votre technique 
+            et votre calme sous pression sont des atouts précieux pour toute l'équipe. 
+            Que votre rigueur soit une leçon pour nous tous !"
+          </blockquote> 
         </div>
 
-        <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-1">Asmaa Sellak</h3>
-        <p className="text-sm text-indigo-600 dark:text-indigo-400 font-medium mb-4">⭐ Top Performer — Mois en cours </p>
-        
-        <blockquote className="text-sm text-slate-600 dark:text-slate-300 italic leading-relaxed border-l-4 border-indigo-400 pl-4 text-left">
-          "En seulement quelques semaines, vous avez démontré ce que signifie vraiment l'excellence. 
-          Votre motivation, votre ponctualité et la qualité de votre travail élèvent le niveau de toute l'équipe. 
-          Vous êtes la preuve vivante que quand on s'investit pleinement, les résultats parlent d'eux-mêmes. 
-          À toute l'équipe — que cela vous inspire à donner le meilleur de vous-mêmes chaque jour !"
-        </blockquote>
       </div>
-
     </div>
+
+    {/* Mois en cours */}
+    <div>
+      <div className="flex items-center gap-3 mb-6">
+        <div className="h-px flex-1 bg-indigo-200 dark:bg-indigo-800" />
+        <span className="bg-gradient-to-r from-indigo-500 to-purple-500 text-white text-sm font-semibold px-4 py-1.5 rounded-full whitespace-nowrap">
+          {new Date().toLocaleString('fr-FR', { month: 'long', year: 'numeric' })}
+        </span>
+        <div className="h-px flex-1 bg-indigo-200 dark:bg-indigo-800" />
+      </div>
+
+      <div className="grid md:grid-cols-2 gap-6">
+
+        {/* Top Rédaction — mois en cours */}
+        <div className="relative rounded-2xl border-2 border-indigo-200 bg-gradient-to-br from-indigo-50 to-blue-50 dark:from-indigo-950/20 dark:to-blue-950/20 dark:border-indigo-800 p-6 text-center shadow-lg shadow-indigo-500/10">
+          <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+            <span className="bg-gradient-to-r from-indigo-500 to-blue-500 text-white text-xs font-semibold px-3 py-1 rounded-full whitespace-nowrap">
+              ✍️ Top Rédaction
+            </span>
+          </div>
+          <div className="w-24 h-24 rounded-full mx-auto mb-4 mt-2 overflow-hidden border-4 border-indigo-300 shadow-lg">
+            <div className="w-full h-full bg-gradient-to-br from-indigo-400 to-blue-500 flex items-center justify-center text-white text-3xl font-bold">
+              <img src="/photos/red-mois-cours.jpg" alt="Top Rédaction" className="w-full h-full object-cover" />
+            </div>
+            {/* <img src="/photos/red-mois-cours.jpg" alt="Top Rédaction" className="w-full h-full object-cover" /> */}
+          </div>
+          <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-1">Asmaa</h3>
+          <p className="text-sm text-indigo-600 dark:text-indigo-400 font-medium mb-4">⭐ Meilleur Rédacteur</p>
+          <blockquote className="text-sm text-slate-600 dark:text-slate-300 italic leading-relaxed border-l-4 border-indigo-400 pl-4 text-left">
+            "Ce mois-ci, vous avez montré ce que signifie s'investir corps et âme dans son travail. 
+            La qualité de votre rédaction parle d'elle-même et force le respect de toute l'équipe. 
+            Gardez cette dynamique — vous prouvez que l'excellence n'est pas un accident, 
+            c'est une habitude. Inspirez ceux qui vous entourent à vous suivre !"
+          </blockquote>
+        </div>
+
+        {/* Top Studio — mois en cours */}
+        <div className="relative rounded-2xl border-2 border-purple-200 bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-950/20 dark:to-pink-950/20 dark:border-purple-800 p-6 text-center shadow-lg shadow-purple-500/10">
+          <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+            <span className="bg-gradient-to-r from-purple-500 to-pink-500 text-white text-xs font-semibold px-3 py-1 rounded-full whitespace-nowrap">
+              🎙️ Top Studio
+            </span>
+          </div>
+          <div className="w-24 h-24 rounded-full mx-auto mb-4 mt-2 overflow-hidden border-4 border-purple-300 shadow-lg">
+            <div className="w-full h-full bg-gradient-to-br from-purple-400 to-pink-500 flex items-center justify-center text-white text-3xl font-bold">
+              <img src="/photos/studio-mois-cours.jpg" alt="Top Studio" className="w-full h-full object-cover" />
+            </div>
+            {/* <img src="/photos/studio-mois-cours.jpg" alt="Top Studio" className="w-full h-full object-cover" /> */}
+          </div>
+          <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-1">Driss</h3>
+          <p className="text-sm text-purple-600 dark:text-purple-400 font-medium mb-4">⭐ Meilleur Studio</p>
+          <blockquote className="text-sm text-slate-600 dark:text-slate-300 italic leading-relaxed border-l-4 border-purple-400 pl-4 text-left">
+            "Votre performance en studio ce mois-ci est remarquable. Vous avez relevé chaque défi 
+            avec professionnalisme et livré un travail dont toute l'équipe peut être fière. 
+            Votre engagement est une motivation pour chacun d'entre nous à repousser ses limites. 
+            Continuez à briller — vous montrez la voie !"
+          </blockquote>
+        </div>
+
+      </div>
+    </div>
+
   </div>
 </section>
+
+
       {/* Announcements */}
       <section className="container mx-auto px-4 py-12">
         <div className="max-w-4xl mx-auto">

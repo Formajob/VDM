@@ -173,11 +173,11 @@ function RealtimeTab({ users }: { users: UserItem[] }) {
     setChanging(true)
     try {
       const isFullDay = FULLDAY_STATUSES.includes(changeStatus)
-      const body: any = {
-        status: changeStatus,
-        targetUserId: changingUser,
-        forceStatus: true,
-      }
+     const body: any = {
+  status: changeStatus,
+  userId: changingUser,
+  forceStatus: true,
+}
       if (isFullDay) {
         body.fullDay = true
         body.startedAt = todayStr()
