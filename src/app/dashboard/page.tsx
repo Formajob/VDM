@@ -6,19 +6,17 @@ import { useRouter } from 'next/navigation'
 import DashboardLayout from '@/components/layout/DashboardLayout'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import AdminAttendanceView from '@/components/AdminAttendanceView'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
   FileText, Clock, CheckCircle2, Circle, AlertCircle,
-  Zap, Users, TrendingUp, Briefcase
+  Zap, Users, TrendingUp, Briefcase, Activity, UserCheck,
+  AlertTriangle, Calendar
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useDemoMode, DemoUser } from '@/hooks/useDemoMode'
+import AdminAttendanceView from '@/components/AdminAttendanceView'
 import AttendanceSection from '@/components/AttendanceSection'
-
-
-
 
 interface Project {
   id: string
@@ -39,19 +37,39 @@ interface Project {
 
 type StatusFilter = 'ALL' | 'PAS_ENCORE' | 'EN_COURS' | 'FAIT' | 'ANNULE'
 type SortOption = 'deadline' | 'name' | 'status'
-type DepartmentFilter = 'TOUS' | 'REDACTION' | 'NARRATION' | 'MIXAGE' | 'LIVRAISON'
+type DepartmentFilter = 'TOUS' | 'REDACTION' | 'NARRATION' | 'MIXAGE' | 'LIVREUR'
+
+// ✅ TYPES POUR LES FILTRES DE PRÉSENCE
+type AttendanceFilterType = 'all' | 'active' | 'inactive' | 'alerts' | 'redacteurs' | 'studios'
+
+interface FilterBox {
+  id: AttendanceFilterType
+  label: string
+  count: number
+  icon: any
+  color: string
+  bgColor: string
+}
 
 export default function DashboardPage() {
-  const {  data: session, status } = useSession()
+  const {   data, status } = useSession()
   const { isDemo, demoUser } = useDemoMode()
   const router = useRouter()
+  
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL')
   const [sortBy, setSortBy] = useState<SortOption>('deadline')
   const [deptFilter, setDeptFilter] = useState<DepartmentFilter>('TOUS')
+  
+  // ✅ STATES POUR LES FILTRES DE PRÉSENCE
+  const [attendanceFilter, setAttendanceFilter] = useState<AttendanceFilterType>('all')
+  const [members, setMembers] = useState<any[]>([])
+  const [activeMembers, setActiveMembers] = useState<string[]>([])
+  const [inactiveMembers, setInactiveMembers] = useState<string[]>([])
+  const [membersWithAlerts, setMembersWithAlerts] = useState<string[]>([])
 
-  const user: DemoUser | null = session?.user as DemoUser || demoUser
+  const user: DemoUser | null = (data?.user as DemoUser) || demoUser || null 
   const isAdmin = user?.role === 'ADMIN'
 
   useEffect(() => {
@@ -61,6 +79,60 @@ export default function DashboardPage() {
   useEffect(() => {
     if (user) fetchProjects()
   }, [user, statusFilter, sortBy, deptFilter])
+
+  // ✅ FETCH TEAM DATA POUR LES FILTRES (CORRIGÉ)
+useEffect(() => {
+  async function fetchTeamData() {
+    if (!isAdmin) return
+    
+    try {
+      // Fetch members
+      const usersRes = await fetch('/api/users')
+      const users = await usersRes.json()
+      const membersList = users.filter((u: any) => u.role === 'MEMBER')
+      setMembers(membersList)
+      
+      // Fetch today's attendance
+      const today = new Date().toISOString().split('T')[0]
+      const attendanceRes = await fetch(`/api/attendance?all=true&date=${today}`)
+      const records = await attendanceRes.json()
+      
+      // ✅ ACTIFS: Utilisateurs UNIQUES connectés MAINTENANT
+      const activeUserIds = new Set(
+        records
+          .filter((r: any) => !r.endedAt && r.status !== 'ABSENT')
+          .map((r: any) => r.userId)
+      )
+      setActiveMembers(Array.from(activeUserIds) as string[])
+      
+      // ✅ INACTIFS: Utilisateurs UNIQUES sans pointage aujourd'hui
+      const allUserIdsWithRecords = new Set(records.map((r: any) => r.userId))
+      const inactive = membersList
+        .filter(m => !allUserIdsWithRecords.has(m.id))
+        .map(m => m.id)
+      setInactiveMembers(inactive)
+      
+      // ✅ ALERTES: Utilisateurs UNIQUES avec alerte (retard, départ anticipé, absent)
+      const alertUserIds = new Set(
+        records
+          .filter((r: any) => 
+            r.isLate || 
+            r.status === 'ABSENT' || 
+            r.lateMinutes === 999 ||
+            r.isEarlyDeparture ||
+            (r.earlyMinutes && r.earlyMinutes > 0)
+          )
+          .map((r: any) => r.userId)
+      )
+      setMembersWithAlerts(Array.from(alertUserIds) as string[])
+      
+    } catch (error) {
+      console.error('Error fetching team ', error)
+    }
+  }
+  
+  fetchTeamData()
+}, [isAdmin])
 
   const fetchProjects = async () => {
     try {
@@ -130,6 +202,48 @@ export default function DashboardPage() {
     pasEncore: projects.filter(p => p.status === 'PAS_ENCORE').length,
   }
 
+  // ✅ CONFIGURATION DES BOXES DE FILTRAGE (CORRIGÉE)
+  const filterBoxes: FilterBox[] = [
+    { id: 'all', label: 'Tous', count: members.length, icon: Users, color: 'text-indigo-600', bgColor: 'bg-indigo-50' },
+    { id: 'active', label: 'Actifs', count: activeMembers.length, icon: Activity, color: 'text-emerald-600', bgColor: 'bg-emerald-50' },
+    { id: 'inactive', label: 'Inactifs', count: inactiveMembers.length, icon: UserCheck, color: 'text-slate-600', bgColor: 'bg-slate-50' },
+    { id: 'alerts', label: 'Alertes', count: membersWithAlerts.length, icon: AlertTriangle, color: 'text-red-600', bgColor: 'bg-red-50' },
+    { id: 'redacteurs', label: 'Rédacteurs', count: members.filter(m => m.jobRole === 'REDACTEUR').length, icon: FileText, color: 'text-blue-600', bgColor: 'bg-blue-50' },
+    // ✅ APRÈS - Inclut tous les rôles studio (NARRATION, TECH_SON, LIVREUR, etc.)
+{ id: 'studios', label: 'Studios', count: members.filter(m => {
+    const studioRoles = ['TECH_SON', 'NARRATEUR', 'NARRATOR', 'NARRATION', 'LIVREUR', 'LIVRAISON']  // ✅ Ajout de 'NARRATEUR'
+    return studioRoles.includes(m.jobRole)
+  }).length, icon: Clock, color: 'text-purple-600', bgColor: 'bg-purple-50' },
+  ]
+
+  // ✅ FILTRER LES MEMBRES AFFICHÉS (CORRIGÉ)
+// ✅ FILTRER LES MEMBRES AFFICHÉS (CORRIGÉ)
+const getFilteredMemberIds = (): string[] => {
+  if (attendanceFilter === 'all') {
+    return members.map(m => m.id)
+  }
+  if (attendanceFilter === 'active') {
+    return activeMembers
+  }
+  if (attendanceFilter === 'inactive') {
+    return inactiveMembers
+  }
+  if (attendanceFilter === 'alerts') {
+    return membersWithAlerts
+  }
+  if (attendanceFilter === 'redacteurs') {
+    return members.filter(m => m.jobRole === 'REDACTEUR').map(m => m.id)
+  }
+  if (attendanceFilter === 'studios') {
+    const studioRoles = ['TECH_SON', 'NARRATEUR', 'NARRATOR', 'NARRATION', 'LIVREUR', 'LIVRAISON']
+    return members.filter(m => studioRoles.includes(m.jobRole)).map(m => m.id)
+  }
+  // ✅ RETURN PAR DÉFAUT (corrige l'erreur TypeScript)
+  return members.map(m => m.id)
+}
+
+  const filteredMemberIds = getFilteredMemberIds()
+
   if ((status === 'loading' && !isDemo) || loading) {
     return (
       <DashboardLayout>
@@ -159,20 +273,57 @@ export default function DashboardPage() {
           )}
         </div>
 
-      {/* Attendance Live Widget */}
-{!isDemo && user?.id && (
-  <div>
-    <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-      <Clock className="h-5 w-5 text-indigo-500" />
-      {isAdmin ? "Présence de l'équipe (Temps réel)" : "Ma présence aujourd'hui"}
-    </h2>
-    {isAdmin ? (
-      <AdminAttendanceView showOnlyRealtime={true} />
-    ) : (
-      <AttendanceSection userId={user.id} />
-    )}
-  </div>
-)}
+        {/* ✅ PRÉSENCES AVEC FILTRES BOXES */}
+        {!isDemo && user?.id && (
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                <Clock className="h-5 w-5 text-indigo-500" />
+                {isAdmin ? "Présence de l'équipe (Temps réel)" : "Ma présence aujourd'hui"}
+              </h2>
+              <span className="text-sm text-muted-foreground">
+                {filteredMemberIds.length} membre{filteredMemberIds.length > 1 ? 's' : ''}
+              </span>
+            </div>
+
+            {/* ✅ BOXES DE FILTRAGE */}
+            {isAdmin && (
+              <div className="grid grid-cols-3 md:grid-cols-6 gap-2 mb-6">
+                {filterBoxes.map(box => {
+                  const Icon = box.icon
+                  const isActive = attendanceFilter === box.id
+                  return (
+                    <button
+                      key={box.id}
+                      onClick={() => setAttendanceFilter(box.id)}
+                      className={`
+                        p-3 rounded-lg border-2 transition-all duration-200 text-center
+                        ${isActive 
+                          ? `${box.bgColor} ${box.color} border-current shadow-md` 
+                          : 'bg-white border-slate-200 hover:border-indigo-300'
+                        }
+                      `}
+                    >
+                      <Icon className={`w-5 h-5 mx-auto mb-1 ${isActive ? box.color : 'text-slate-400'}`} />
+                      <p className={`text-[10px] font-medium ${isActive ? box.color : 'text-slate-600'}`}>{box.label}</p>
+                      <p className={`text-lg font-bold ${isActive ? box.color : 'text-slate-800'}`}>{box.count}</p>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* ✅ AFFICHAGE FILTRÉ */}
+            {isAdmin ? (
+              <AdminAttendanceView 
+                showOnlyRealtime={true}
+                filterMemberIds={filteredMemberIds}
+              />
+            ) : (
+              <AttendanceSection userId={user.id} />
+            )}
+          </div>
+        )}
 
         {/* Stats globales */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

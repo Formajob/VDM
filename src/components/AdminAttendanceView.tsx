@@ -10,8 +10,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { toast } from 'sonner'
-
-import GaugeChart from '@/components/GaugeChart'
 import {
   Clock, Coffee, UtensilsCrossed, Users, BookOpen, Handshake,
   UserX, Palmtree, Play, AlertTriangle, Download, RefreshCw,
@@ -99,7 +97,12 @@ interface MemberStatus {
   alerts: string[]
 }
 
-function RealtimeTab({ users }: { users: UserItem[] }) {
+interface RealtimeTabProps {
+  users: UserItem[]
+  filterMemberIds?: string[]  // ✅ NOUVELLE PROP
+}
+
+function RealtimeTab({ users, filterMemberIds }: RealtimeTabProps) {
   const [members, setMembers] = useState<MemberStatus[]>([])
   const [tick, setTick] = useState(0)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
@@ -119,12 +122,19 @@ function RealtimeTab({ users }: { users: UserItem[] }) {
     }
 
     const now = Date.now()
-    // Filter out ADMIN users - they don't clock in/out
-    const activeUsers = users.filter(u => {
+    
+    // Filter out ADMIN users
+    let activeUsers = users.filter(u => {
       const isAdminEmail = u.email?.toLowerCase().includes('admin')
       const isAdminRole = u.jobRole === 'ADMIN'
       return !isAdminEmail && !isAdminRole
     })
+    
+    // ✅ FILTRER par filterMemberIds si fourni
+    if (filterMemberIds && filterMemberIds.length > 0) {
+      activeUsers = activeUsers.filter(u => filterMemberIds.includes(u.id))
+    }
+
     const statuses: MemberStatus[] = activeUsers.map(user => {
       const recs = byUser.get(user.id) || []
       const active = recs.find(r => !r.endedAt) || null
@@ -155,7 +165,7 @@ function RealtimeTab({ users }: { users: UserItem[] }) {
 
     setMembers(statuses)
     setLastUpdated(new Date())
-  }, [users])
+  }, [users, filterMemberIds])
 
   useEffect(() => {
     fetchAll()
@@ -173,11 +183,11 @@ function RealtimeTab({ users }: { users: UserItem[] }) {
     setChanging(true)
     try {
       const isFullDay = FULLDAY_STATUSES.includes(changeStatus)
-     const body: any = {
-  status: changeStatus,
-  userId: changingUser,
-  forceStatus: true,
-}
+      const body: any = {
+        status: changeStatus,
+        targetUserId: changingUser,
+        forceStatus: true,
+      }
       if (isFullDay) {
         body.fullDay = true
         body.startedAt = todayStr()
@@ -742,12 +752,13 @@ function HistoryTab({ users }: { users: UserItem[] }) {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <GaugeChart 
+                {/* <GaugeChart 
                   shiftPercent={shiftPercent}
                   pausePercent={pausePercent}
                   lunchPercent={lunchPercent}
                   otherPercent={otherPercent}
-                />
+                /> */}
+                <div className="text-center text-muted-foreground py-4">Graphique en développement</div>
               </CardContent>
             </Card>
           )}
@@ -785,7 +796,7 @@ function ReportsTab({ users }: { users: UserItem[] }) {
     const res = await fetch(`/api/attendance?all=true&dateFrom=${from}&dateTo=${to}`)
     if (res.ok) setRecords(await res.json())
     setLoading(false)
-  }, [period, dateFrom, dateTo])
+  }, [period])
 
   useEffect(() => { fetchReport() }, [period])
 
@@ -941,7 +952,15 @@ function ReportsTab({ users }: { users: UserItem[] }) {
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 
-export default function AdminAttendanceView({ showOnlyRealtime = false }: { showOnlyRealtime?: boolean }) {
+interface AdminAttendanceViewProps {
+  showOnlyRealtime?: boolean
+  filterMemberIds?: string[]  // ✅ NOUVELLE PROP
+}
+
+export default function AdminAttendanceView({ 
+  showOnlyRealtime = false,
+  filterMemberIds  // ✅ DÉSTRUCTURER LA PROP
+}: AdminAttendanceViewProps) {
   const [users, setUsers] = useState<UserItem[]>([])
 
   useEffect(() => {
@@ -958,7 +977,7 @@ export default function AdminAttendanceView({ showOnlyRealtime = false }: { show
         </h2>
       )}
       {showOnlyRealtime ? (
-        <RealtimeTab users={users} />
+        <RealtimeTab users={users} filterMemberIds={filterMemberIds} />  // ✅ PASSER LA PROP
       ) : (
         <Tabs defaultValue="history">
           <TabsList className="bg-gradient-to-r from-indigo-100 to-purple-100">
