@@ -6,7 +6,7 @@ export async function GET() {
   try {
     const {  data, error } = await supabaseAdmin
       .from('User')
-      .select('id, name, email, role')
+      .select('id, name, email, role, pr, "jobRole"')  // ✅ AJOUT: pr et "jobRole"
       .order('name', { ascending: true })
 
     if (error) throw error

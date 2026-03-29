@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import {
   LayoutDashboard, Clock, Settings, FileText,
   LogOut, Users, Zap, Menu, X, FileText as FileIcon,
-  Calendar, Repeat, ChevronDown, ChevronUp
+  Calendar, Repeat
 } from 'lucide-react'
 import { useState } from 'react'
 import { useDemoMode, DemoUser } from '@/hooks/useDemoMode'
@@ -31,38 +31,37 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const router = useRouter()
   const pathname = usePathname()
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [openSubmenu, setOpenSubmenu] = useState<string | null>(null)
 
   const user: DemoUser | null = (data?.user as DemoUser) || demoUser || null
   const isAdmin = user?.role === 'ADMIN'
   const isMember = user?.role === 'MEMBER'
 
- const navigation: NavItem[] = [
-  { label: 'Tableau de bord', href: '/dashboard', icon: LayoutDashboard },
-  { 
-    label: 'Présences', 
-    href: '/attendance', 
-    icon: Clock,
-    children: isAdmin ? [
-      { label: 'Historique', href: '/admin/attendance/history', icon: Clock },
-      { label: 'Gestion', href: '/admin/attendance/management', icon: Settings },
-      { label: 'Rapports', href: '/admin/attendance/reports', icon: FileText },
-    ] : undefined
-  },
-  { 
-    label: 'Planning', 
-    href: '/planning', 
-    icon: Calendar,
-    children: isAdmin ? [
-      { label: 'Gestion Planning', href: '/admin/planning/management', icon: Calendar },
-      { label: 'Validation Swaps', href: '/admin/planning/swaps', icon: Repeat },
-      { label: 'Rapports', href: '/admin/planning/reports', icon: FileText },
-      { label: 'Points Ramassage', href: '/admin/planning/pickup', icon: Users },
-    ] : undefined
-  },
-  { label: 'Projets VD', href: '/projects', icon: FileText },
-  { label: 'Administration', href: '/admin', icon: Settings, adminOnly: true },
-]
+  const navigation: NavItem[] = [
+    { label: 'Tableau de bord', href: '/dashboard', icon: LayoutDashboard },
+    { 
+      label: 'Présences', 
+      href: '/attendance', 
+      icon: Clock,
+      children: isAdmin ? [
+        { label: 'Historique', href: '/admin/attendance/history', icon: Clock },
+        { label: 'Gestion', href: '/admin/attendance/management', icon: Settings },
+        { label: 'Rapports', href: '/admin/attendance/reports', icon: FileText },
+      ] : undefined
+    },
+    { 
+      label: 'Planning', 
+      href: '/planning', 
+      icon: Calendar,
+      children: isAdmin ? [
+        { label: 'Gestion Planning', href: '/admin/planning/management', icon: Calendar },
+        { label: 'Validation Swaps', href: '/admin/planning/swaps', icon: Repeat },
+        { label: 'Rapports', href: '/admin/planning/reports', icon: FileText },
+        { label: 'Points Ramassage', href: '/admin/planning/pickup', icon: Users },
+      ] : undefined
+    },
+    { label: 'Projets VD', href: '/projects', icon: FileText },
+    { label: 'Administration', href: '/admin', icon: Settings, adminOnly: true },
+  ]
 
   const handleSignOut = () => {
     if (isDemo) {
@@ -75,7 +74,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
   const handleNavClick = (href: string, hasChildren?: boolean) => {
     if (hasChildren) {
-      setOpenSubmenu(openSubmenu === href ? null : href)
+      // ✅ Ne rien faire au click sur le parent - les sous-menus sont toujours visibles
+      return
     } else {
       router.push(href)
       setSidebarOpen(false)
@@ -110,11 +110,11 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               
               const isActive = pathname === item.href || pathname?.startsWith(item.href + '/')
               const hasChildren = item.children && item.children.length > 0
-              const isSubmenuOpen = openSubmenu === item.href
               const Icon = item.icon
 
               return (
                 <div key={item.href}>
+                  {/* Parent item */}
                   <Button
                     variant="ghost"
                     className={`w-full justify-start gap-3 ${
@@ -126,13 +126,11 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                   >
                     <Icon className="h-4 w-4" />
                     <span className="flex-1 text-left">{item.label}</span>
-                    {hasChildren && (
-                      isSubmenuOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />
-                    )}
+                    {/* ✅ FLÈCHES SUPPRIMÉES - Les sous-menus sont toujours visibles */}
                   </Button>
 
-                  {/* Submenu */}
-                  {hasChildren && isSubmenuOpen && (
+                  {/* ✅ Sous-menu TOUJOURS AFFICHÉ (pas de toggle) */}
+                  {hasChildren && (
                     <div className="ml-4 mt-1 space-y-1 border-l-2 border-indigo-200 pl-3">
                       {item.children?.map((child) => {
                         const childIcon = child.icon

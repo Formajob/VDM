@@ -20,7 +20,7 @@ Allow: /
  
 cd C:\Users\User18\Desktop\VDM
 git add .
-git commit -m "feat: gestion attendance + correction forçage statut temps reel"
+git commit -m "feat: rapport présence"
 git push origin main
 
  */}
