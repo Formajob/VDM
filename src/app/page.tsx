@@ -370,7 +370,7 @@ export default function HomePage() {
                 <span className="font-medium text-slate-700 dark:text-slate-300">Formajob</span><br />
                 Solutions digitales sur mesure<br />
                 <a
-                  href="https://640e5d0f50ca9.site123.me"
+                  href="https://formajob.vercel.app/"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 hover:underline"
