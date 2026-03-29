@@ -2,9 +2,18 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import { nanoid } from 'nanoid'
 
-// GET attendance records
+const TOLERANCE_MINUTES = 5
+
+// ✅ FONCTION: Formatage de date sans timezone (YYYY-MM-DD en local)
+function formatDateLocal(date: Date): string {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0')
+  ].join('-')
+}
+
 export async function GET(request: Request) {
   try {
     const session = await getServerSession(authOptions)
@@ -12,167 +21,357 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url)
     const userId = searchParams.get('userId')
-    const date = searchParams.get('date') // YYYY-MM-DD
-    const all = searchParams.get('all') // admin: fetch all users
 
-    const userRole = (session.user as any).role
-    const sessionUserId = (session.user as any).id
-
-    let query = supabaseAdmin
+    // 1️⃣ Fetch attendance
+    let attendanceQuery = supabaseAdmin
       .from('Attendance')
-      .select(`
-        *,
-        user:User!Attendance_userId_fkey (
-          id,
-          name,
-          email,
-          jobRole
-        )
-      `)
+      .select('*, user:User!Attendance_userId_fkey (id, name, email, "jobRole")')
       .order('startedAt', { ascending: false })
 
-    // Admin can see all, member sees only their own
-    if (userRole !== 'ADMIN' || !all) {
-      query = query.eq('userId', userId || sessionUserId)
+    if (userId) {
+      attendanceQuery = attendanceQuery.eq('userId', userId)
     }
 
-    if (date) {
-      const start = `${date}T00:00:00`
-      const end = `${date}T23:59:59`
-      query = query.gte('startedAt', start).lte('startedAt', end)
+    const { data: attendanceData, error: attendanceError } = await attendanceQuery
+    if (attendanceError) throw attendanceError
+    if (!attendanceData || attendanceData.length === 0) return NextResponse.json([])
+
+    // 2️⃣ Fetch ALL plannings
+    const userIds = [...new Set(attendanceData.map((a: any) => a.userId))]
+    
+    let planningQuery = supabaseAdmin.from('Planning').select('*')
+    if (userIds.length === 1) {
+      planningQuery = planningQuery.eq('userid', userIds[0])
+    } else {
+      planningQuery = planningQuery.in('userid', userIds)
     }
 
-    const { data, error } = await query
-    if (error) throw error
+    const { data: allPlanning, error: planningError } = await planningQuery
+    if (planningError) console.error('Planning error:', planningError)
+    
+    // 3️⃣ Filtrer par date range en JS
+    const dates = attendanceData.map((a: any) => a.startedAt.split('T')[0])
+    const minDate = dates.sort()[0]
+    const maxDate = [...dates].reverse()[0]
 
-    return NextResponse.json(data)
+    const planningData = (allPlanning || []).filter((p: any) => {
+      return p.weekstart <= maxDate && p.weekend >= minDate
+    })
+
+    // 4️⃣ Build planning map - ✅ AVEC formatDateLocal
+    const planningMap = new Map<string, any>()
+    const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+    
+    planningData.forEach((p: any) => {
+      const weekStart = new Date(p.weekstart)
+      
+      days.forEach((day, index) => {
+        const currentDate = new Date(weekStart)
+        currentDate.setDate(weekStart.getDate() + index)
+        
+        // ✅ CORRECTION: Utiliser formatDateLocal au lieu de toISOString()
+        const dateStr = formatDateLocal(currentDate)
+        const key = `${p.userid}_${dateStr}`
+        
+        const dayData = p[day]
+        if (dayData?.shift) {
+          planningMap.set(key, { shift: dayData.shift })
+          console.log('✅ Mapped:', key, '=>', dayData.shift)
+        }
+      })
+    })
+
+    console.log('🗺️ Total mapped days:', planningMap.size)
+
+    // 5️⃣ Enrich records - ✅ AVEC formatDateLocal pour la lookup
+    const enrichedData = attendanceData.map((record: any) => {
+      // ✅ CORRECTION: Utiliser formatDateLocal pour la date du record
+      const recordDate = formatDateLocal(new Date(record.startedAt))
+      const planningKey = `${record.userId}_${recordDate}`
+      const planning = planningMap.get(planningKey)
+      
+      const metrics = calculatePerformance(record, planning)
+
+      return { ...record, ...metrics }
+    })
+
+    return NextResponse.json(enrichedData)
   } catch (error) {
-    console.error('Error fetching attendance:', error)
-    return NextResponse.json({ error: 'Failed to fetch attendance' }, { status: 500 })
+    console.error('❌ Error:', error)
+    return NextResponse.json({ error: 'Failed' }, { status: 500 })
   }
 }
 
-// POST - start a new status or force status for another user (admin)
+function calculatePerformance(record: any, planning: any) {
+  const recordDate = formatDateLocal(new Date(record.startedAt))
+  
+  if (record.status === 'ABSENT') {
+    return {
+      isLate: true,
+      isEarlyDeparture: false,
+      lateMinutes: 999,
+      earlyMinutes: 0,
+      plannedShift: null,
+      adherencePercent: 0
+    }
+  }
+
+  let plannedStart = record.plannedShiftStart
+  let plannedEnd = record.plannedShiftEnd
+  
+  if (planning?.shift) {
+    const [s, e] = planning.shift.split('-')
+    plannedStart = s
+    plannedEnd = e
+  }
+  
+  if (!plannedStart || !plannedEnd) {
+    return {
+      isLate: false,
+      isEarlyDeparture: false,
+      lateMinutes: 0,
+      earlyMinutes: 0,
+      plannedShift: null,
+      adherencePercent: 0
+    }
+  }
+  
+  const plannedStartTime = new Date(`${recordDate}T${plannedStart}`)
+  const plannedEndTime = new Date(`${recordDate}T${plannedEnd}`)
+  const actualStartTime = new Date(record.startedAt)
+  const actualEndTime = record.endedAt ? new Date(record.endedAt) : null
+
+  let lateMinutes = 0
+  let isLate = false
+  if (actualStartTime && plannedStartTime) {
+    const diffMs = actualStartTime.getTime() - plannedStartTime.getTime()
+    lateMinutes = Math.floor(diffMs / 60000)
+    isLate = lateMinutes > TOLERANCE_MINUTES
+  }
+
+  let earlyMinutes = 0
+  let isEarlyDeparture = false
+  if (actualEndTime && plannedEndTime) {
+    const diffMs = plannedEndTime.getTime() - actualEndTime.getTime()
+    earlyMinutes = Math.floor(diffMs / 60000)
+    isEarlyDeparture = earlyMinutes > TOLERANCE_MINUTES
+  }
+
+  const plannedDuration = (plannedEndTime.getTime() - plannedStartTime.getTime()) / 60000
+  const actualDuration = actualEndTime ? (actualEndTime.getTime() - actualStartTime.getTime()) / 60000 : 0
+  const adherencePercent = plannedDuration > 0 ? Math.max(0, Math.min(100, Math.round((actualDuration / plannedDuration) * 100))) : 0
+
+  return {
+    isLate,
+    isEarlyDeparture,
+    lateMinutes: isLate ? lateMinutes : 0,
+    earlyMinutes: isEarlyDeparture ? earlyMinutes : 0,
+    plannedShift: { start: plannedStart, end: plannedEnd },
+    adherencePercent
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const session = await getServerSession(authOptions)
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    const sessionUserId = (session.user as any).id
-    const userRole = (session.user as any).role
     const body = await request.json()
-    const { status, note, targetUserId, forceStatus, fullDay, startedAt, endedAt } = body
+    const now = new Date()
 
-    // Determine which user to update: targetUserId if admin forcing, otherwise session user
-    const userIdToUpdate = (userRole === 'ADMIN' && forceStatus && targetUserId) 
-      ? targetUserId 
-      : sessionUserId
+    console.log('🔹 POST /api/attendance:', {
+      id: body.id,
+      userId: body.userId,
+      targetUserId: body.targetUserId,
+      status: body.status,
+      forceStatus: body.forceStatus,
+      fullDay: body.fullDay,
+    })
 
-    // If fullDay mode (ABSENT/CONGE), delete existing records for that day first
-    if (fullDay && startedAt) {
-      const dayStart = `${startedAt}T00:00:00`
-      const dayEnd = `${startedAt}T23:59:59`
+    // ✅ DÉTERMINER L'UTILISATEUR CIBLE
+    // Soit body.userId (membre qui clock), soit body.targetUserId (admin qui force)
+    const targetUserId = body.targetUserId || body.userId
+    if (!targetUserId) {
+      return NextResponse.json({ error: 'userId or targetUserId required' }, { status: 400 })
+    }
+
+    // ✅ CAS 1: Clock-out (mise à jour d'un pointage existant)
+    if (body.id && body.endedAt && !body.forceStatus) {
+      console.log('⏰ Clock-out for:', body.id)
+      
+      const { data, error } = await supabaseAdmin
+        .from('Attendance')
+        .update({
+          endedAt: body.endedAt,
+          durationMin: body.durationMin,
+          updatedAt: now.toISOString(),
+        })
+        .eq('id', body.id)
+        .select()
+        .single()
+
+      if (error) {
+        console.error('❌ Clock-out error:', error)
+        throw error
+      }
+      return NextResponse.json(data, { status: 200 })
+    }
+
+    // ✅ CAS 2: Full day status (ABSENT, CONGE) - admin force
+    if (body.fullDay && body.forceStatus) {
+      console.log('📅 Full day status for:', targetUserId, 'on', body.startedAt)
+      
+      const date = body.startedAt || todayStr()
+      
+      // Supprimer les entrées existantes pour ce jour
       await supabaseAdmin
         .from('Attendance')
         .delete()
-        .eq('userId', userIdToUpdate)
-        .gte('startedAt', dayStart)
-        .lte('startedAt', dayEnd)
+        .eq('userId', targetUserId)
+        .gte('startedAt', `${date}T00:00:00`)
+        .lte('startedAt', `${date}T23:59:59`)
       
-      // Create full day record (8h-17h)
-      const fullDayStart = new Date(`${startedAt}T08:00:00Z`)
-      const fullDayEnd = new Date(`${startedAt}T17:00:00Z`)
-      const durationMin = (fullDayEnd.getTime() - fullDayStart.getTime()) / 60000
+      // Créer l'entrée full day
+      const insertData: any = {
+        id: body.id || `fullday_${targetUserId}_${date}`,
+        userId: targetUserId,
+        status: body.status,
+        startedAt: `${date}T08:00:00`,
+        endedAt: `${date}T17:00:00`,
+        durationMin: 540, // 9 hours
+        note: body.note || `Statut forcé: ${body.status}`,
+        isAdjusted: true,
+        adjustedBy: (session.user as any)?.id,
+        adjustedAt: now.toISOString(),
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+      }
 
       const { data, error } = await supabaseAdmin
         .from('Attendance')
-        .insert({
-          id: nanoid(),
-          userId: userIdToUpdate,
-          status,
-          startedAt: fullDayStart.toISOString(),
-          endedAt: fullDayEnd.toISOString(),
-          durationMin: parseFloat(durationMin.toFixed(2)),
-          note: note || null,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        })
-        .select(`
-          *,
-          user:User!Attendance_userId_fkey (id, name, email, jobRole)
-        `)
+        .insert(insertData)
+        .select()
         .single()
 
       if (error) throw error
       return NextResponse.json(data, { status: 201 })
     }
 
-    // Close any currently active record for the TARGET user (no endedAt)
-    const { data: active } = await supabaseAdmin
-      .from('Attendance')
-      .select('*')
-      .eq('userId', userIdToUpdate)
-      .is('endedAt', null)
-      .maybeSingle()
+    // ✅ CAS 3: Admin force status change (non full-day)
+    if (body.forceStatus) {
+      console.log('⚡ Force status for:', targetUserId, '=>', body.status)
+      
+      const insertData: any = {
+        id: body.id || crypto.randomUUID(),
+        userId: targetUserId,
+        status: body.status,
+        startedAt: body.startedAt || now.toISOString(),
+        endedAt: body.endedAt || null,
+        durationMin: body.durationMin || null,
+        note: body.note || null,
+        isAdjusted: true,
+        adjustedBy: (session.user as any)?.id,
+        adjustedAt: now.toISOString(),
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+      }
 
-    if (active) {
-      const now = new Date()
-      const started = new Date(active.startedAt)
-      const durationMin = (now.getTime() - started.getTime()) / 60000
-
-      await supabaseAdmin
+      const { data, error } = await supabaseAdmin
         .from('Attendance')
-        .update({
-          endedAt: now.toISOString(),
-          durationMin: parseFloat(durationMin.toFixed(2)),
-          updatedAt: now.toISOString(),
-        })
-        .eq('id', active.id)
+        .insert(insertData)
+        .select()
+        .single()
+
+      if (error) throw error
+      return NextResponse.json(data, { status: 201 })
     }
 
-    // If status is DEPART, don't create a new record
-    if (status === 'DEPART') {
-      return NextResponse.json({ departed: true })
-    }
-
-    // Create new record for the TARGET user
-    const now = new Date()
+    // ✅ CAS 4: Clock-in ou ajout normal (membre ou admin sans forceStatus)
     const insertData: any = {
-      id: nanoid(),
-      userId: userIdToUpdate,
-      status,
-      startedAt: startedAt || now.toISOString(),
-      note: note || null,
+      id: body.id || crypto.randomUUID(),
+      userId: targetUserId,
+      status: body.status || 'EN_PRODUCTION',
+      startedAt: body.startedAt || now.toISOString(),
+      endedAt: body.endedAt || null,
+      durationMin: body.durationMin || null,
+      note: body.note || null,
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
-    }
-    
-    if (endedAt) {
-      insertData.endedAt = endedAt
-      const started = new Date(insertData.startedAt)
-      const ended = new Date(endedAt)
-      insertData.durationMin = parseFloat(((ended.getTime() - started.getTime()) / 60000).toFixed(2))
     }
 
     const { data, error } = await supabaseAdmin
       .from('Attendance')
       .insert(insertData)
-      .select(`
-        *,
-        user:User!Attendance_userId_fkey (
-          id,
-          name,
-          email,
-          jobRole
-        )
-      `)
+      .select()
       .single()
 
     if (error) throw error
-
     return NextResponse.json(data, { status: 201 })
   } catch (error) {
-    console.error('Error creating attendance:', error)
-    return NextResponse.json({ error: 'Failed to create attendance' }, { status: 500 })
+    console.error('❌ Error in POST /api/attendance:', error)
+    return NextResponse.json({ error: 'Failed to save attendance' }, { status: 500 })
+  }
+}
+
+// Helper pour todayStr
+function todayStr(): string {
+  return new Date().toISOString().split('T')[0]
+}
+export async function DELETE(request: Request) {
+  try {
+    const session = await getServerSession(authOptions)
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+    const { searchParams } = new URL(request.url)
+    const id = searchParams.get('id')
+
+    if (!id) return NextResponse.json({ error: 'ID required' }, { status: 400 })
+
+    const { error } = await supabaseAdmin
+      .from('Attendance')
+      .delete()
+      .eq('id', id)
+
+    if (error) throw error
+    return NextResponse.json({ success: true })
+  } catch (error) {
+    console.error('Error deleting attendance:', error)
+    return NextResponse.json({ error: 'Failed to delete' }, { status: 500 })
+  }
+}
+
+export async function PUT(request: Request) {
+  try {
+    const session = await getServerSession(authOptions)
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+    const body = await request.json()
+    const now = new Date()
+
+    const { data, error } = await supabaseAdmin
+      .from('Attendance')
+      .update({
+        status: body.status,
+        startedAt: body.startedAt,
+        endedAt: body.endedAt,
+        durationMin: body.durationMin,
+        note: body.note,
+        isAdjusted: body.isAdjustment || false,
+        adjustedBy: body.isAdjustment ? (session.user as any).id : null,
+        adjustedAt: body.isAdjustment ? now.toISOString() : null,
+        adjustmentNote: body.adjustmentNote || null,
+        overrideIsLate: body.overrideIsLate,
+        overrideIsEarly: body.overrideIsEarly,
+        updatedAt: now.toISOString(),
+      })
+      .eq('id', body.id)
+      .select()
+      .single()
+
+    if (error) throw error
+    return NextResponse.json(data)
+  } catch (error) {
+    console.error('Error updating attendance:', error)
+    return NextResponse.json({ error: 'Failed to update' }, { status: 500 })
   }
 }
