@@ -15,9 +15,11 @@ import { toast } from 'sonner'
 import { Calendar, ChevronLeft, ChevronRight, Edit, Users, Filter, Clock } from 'lucide-react'
 import { useDemoMode, DemoUser } from '@/hooks/useDemoMode'
 
-interface PlanningDay {
-  shift: string
-  status?: 'SHIFT' | 'CONGE' | 'OFF' | 'MALADIE' | 'AUTRE'
+// ✅ INTERFACE CORRIGÉE pour correspondre au format BDD
+interface PlanningDayRaw {
+  startTime?: string
+  endTime?: string
+  shiftType?: 'NORMAL' | 'NIGHT' | 'OFF' | 'VAC' | 'MALADIE' | 'AUTRE'
 }
 
 interface WeeklyPlanning {
@@ -25,13 +27,13 @@ interface WeeklyPlanning {
   userid: string
   weekstart: string
   weekend: string
-  sunday: PlanningDay | null
-  monday: PlanningDay | null
-  tuesday: PlanningDay | null
-  wednesday: PlanningDay | null
-  thursday: PlanningDay | null
-  friday: PlanningDay | null
-  saturday: PlanningDay | null
+  sunday: PlanningDayRaw | null
+  monday: PlanningDayRaw | null
+  tuesday: PlanningDayRaw | null
+  wednesday: PlanningDayRaw | null
+  thursday: PlanningDayRaw | null
+  friday: PlanningDayRaw | null
+  saturday: PlanningDayRaw | null
   user?: { name: string; email: string; jobRole: string }
 }
 
@@ -45,9 +47,11 @@ const FULL_DAY_LABELS: Record<string, string> = {
   thursday: 'Jeudi', friday: 'Vendredi', saturday: 'Samedi'
 }
 
+// ✅ OPTIONS CORRIGÉES pour correspondre aux shiftType de la BDD
 const STATUS_OPTIONS = [
-  { value: 'SHIFT', label: 'Shift normal', color: 'bg-indigo-100 text-indigo-700' },
-  { value: 'CONGE', label: 'Congé', color: 'bg-emerald-100 text-emerald-700' },
+  { value: 'NORMAL', label: 'Shift normal', color: 'bg-indigo-100 text-indigo-700' },
+  { value: 'NIGHT', label: 'Shift de nuit', color: 'bg-purple-100 text-purple-700' },
+  { value: 'VAC', label: 'Congé', color: 'bg-emerald-100 text-emerald-700' },
   { value: 'OFF', label: 'OFF', color: 'bg-slate-100 text-slate-700' },
   { value: 'MALADIE', label: 'Maladie', color: 'bg-red-100 text-red-700' },
   { value: 'AUTRE', label: 'Autre', color: 'bg-amber-100 text-amber-700' },
@@ -73,6 +77,12 @@ function formatWeekRange(weekStart: string, weekEnd: string): string {
   return `${start.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} - ${end.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })}`
 }
 
+// ✅ FONCTION POUR FORMATER L'AFFICHAGE DU SHIFT
+function formatShiftDisplay(dayData: PlanningDayRaw | null): string {
+  if (!dayData?.startTime || !dayData?.endTime) return '—'
+  return `${dayData.startTime}-${dayData.endTime}`
+}
+
 export default function AdminPlanningManagementPage() {
   const { data, status } = useSession()
   const { isDemo, demoUser } = useDemoMode()
@@ -90,8 +100,9 @@ export default function AdminPlanningManagementPage() {
   // Edit dialog
   const [editOpen, setEditOpen] = useState(false)
   const [editingCell, setEditingCell] = useState<{ userId: string; day: string } | null>(null)
-  const [editShift, setEditShift] = useState('08:00-17:00')
-  const [editStatus, setEditStatus] = useState<PlanningDay['status']>('SHIFT')
+  const [editStartTime, setEditStartTime] = useState('08:00')
+  const [editEndTime, setEditEndTime] = useState('17:00')
+  const [editShiftType, setEditShiftType] = useState<PlanningDayRaw['shiftType']>('NORMAL')
 
   useEffect(() => {
     if (!isDemo && status === 'unauthenticated') router.push('/login')
@@ -112,6 +123,7 @@ export default function AdminPlanningManagementPage() {
     const res = await fetch(`/api/planning?weekStart=${currentWeek.start}&all=true`)
     if (res.ok) {
       const data = await res.json()
+      console.log('📊 Planning data received:', data) // Debug log
       setTeamPlanning(data)
     }
     setLoading(false)
@@ -134,23 +146,23 @@ export default function AdminPlanningManagementPage() {
     setCurrentWeek(getWeekRange(newSunday))
   }
 
-  const handleEditClick = (userId: string, day: string, currentData: PlanningDay | null) => {
+  const handleEditClick = (userId: string, day: string, currentData: PlanningDayRaw | null) => {
     setEditingCell({ userId, day })
-    setEditShift(currentData?.shift || '08:00-17:00')
-    setEditStatus(currentData?.status || 'SHIFT')
+    setEditStartTime(currentData?.startTime || '08:00')
+    setEditEndTime(currentData?.endTime || '17:00')
+    setEditShiftType(currentData?.shiftType || 'NORMAL')
     setEditOpen(true)
   }
 
   const handleSaveEdit = async () => {
     if (!editingCell) return
     
-    const dayData: PlanningDay = editStatus === 'SHIFT' 
-      ? { shift: editShift, status: 'SHIFT' }
-      : { shift: '', status: editStatus }
+    // ✅ Construire l'objet au format BDD
+    const dayData: PlanningDayRaw = editShiftType === 'NORMAL' || editShiftType === 'NIGHT'
+      ? { startTime: editStartTime, endTime: editEndTime, shiftType: editShiftType }
+      : { shiftType: editShiftType }
 
     try {
-      const existing = teamPlanning.find(p => p.userid === editingCell.userId && p.weekstart === currentWeek.start)
-      
       const payload = {
         userid: editingCell.userId,
         weekstart: currentWeek.start,
@@ -179,15 +191,24 @@ export default function AdminPlanningManagementPage() {
     return teamPlanning.filter(p => p.userid === selectedMember)
   }
 
-  const getStatusBadge = (dayData: PlanningDay | null) => {
-    if (!dayData?.status || dayData.status === 'SHIFT') {
-      return <span className="text-sm font-medium text-indigo-700">{dayData?.shift || '—'}</span>
+  // ✅ FONCTION CORRIGÉE pour afficher le badge
+  const getStatusBadge = (dayData: PlanningDayRaw | null) => {
+    if (!dayData?.shiftType || dayData.shiftType === 'OFF') {
+      return <span className="text-sm text-slate-400">OFF</span>
     }
-    const option = STATUS_OPTIONS.find(o => o.value === dayData.status)
+    
+    if (dayData.shiftType === 'VAC' || dayData.shiftType === 'MALADIE' || dayData.shiftType === 'AUTRE') {
+      const option = STATUS_OPTIONS.find(o => o.value === dayData.shiftType)
+      return <Badge className={`${option?.color} border-0 text-xs`}>{option?.label}</Badge>
+    }
+    
+    // ✅ Pour NORMAL ou NIGHT: afficher les horaires
+    const shiftDisplay = formatShiftDisplay(dayData)
+    const isNight = dayData.shiftType === 'NIGHT'
     return (
-      <Badge className={`${option?.color} border-0 text-xs`}>
-        {option?.label}
-      </Badge>
+      <span className={`text-sm font-medium ${isNight ? 'text-purple-700' : 'text-indigo-700'}`}>
+        {shiftDisplay}{isNight && ' 🌙'}
+      </span>
     )
   }
 
@@ -298,16 +319,20 @@ export default function AdminPlanningManagementPage() {
                       <tbody>
                         <tr>
                           {DAYS.map(day => {
-                            const dayData = planning[day as keyof WeeklyPlanning] as PlanningDay | null
+                            const dayData = planning[day as keyof WeeklyPlanning] as PlanningDayRaw | null
+                            const isOff = !dayData?.shiftType || dayData.shiftType === 'OFF'
+                            const isVac = dayData?.shiftType === 'VAC'
+                            
                             return (
                               <td key={day} className="px-2 py-3 border-r last:border-0 align-top">
                                 <div className="relative group">
                                   <div className={`p-2 rounded-lg border text-center min-h-[60px] flex flex-col items-center justify-center gap-1 ${
-                                    dayData?.status === 'SHIFT' ? 'border-indigo-200 bg-indigo-50/50' :
-                                    dayData?.status === 'CONGE' ? 'border-emerald-200 bg-emerald-50/50' :
-                                    dayData?.status === 'OFF' ? 'border-slate-200 bg-slate-50' :
-                                    dayData?.status === 'MALADIE' ? 'border-red-200 bg-red-50/50' :
-                                    'border-amber-200 bg-amber-50/50'
+                                    dayData?.shiftType === 'NORMAL' ? 'border-indigo-200 bg-indigo-50/50' :
+                                    dayData?.shiftType === 'NIGHT' ? 'border-purple-200 bg-purple-50/50' :
+                                    dayData?.shiftType === 'VAC' ? 'border-emerald-200 bg-emerald-50/50' :
+                                    dayData?.shiftType === 'MALADIE' ? 'border-red-200 bg-red-50/50' :
+                                    dayData?.shiftType === 'AUTRE' ? 'border-amber-200 bg-amber-50/50' :
+                                    'border-slate-200 bg-slate-50'
                                   }`}>
                                     {getStatusBadge(dayData)}
                                   </div>
@@ -352,7 +377,7 @@ export default function AdminPlanningManagementPage() {
               {/* Status selection */}
               <div className="space-y-2">
                 <Label>Statut du jour</Label>
-                <Select value={editStatus} onValueChange={(v) => setEditStatus(v as PlanningDay['status'])}>
+                <Select value={editShiftType} onValueChange={(v) => setEditShiftType(v as PlanningDayRaw['shiftType'])}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -366,22 +391,22 @@ export default function AdminPlanningManagementPage() {
                 </Select>
               </div>
 
-              {/* Shift time - only show if SHIFT status */}
-              {editStatus === 'SHIFT' && (
+              {/* Shift time - only show if NORMAL or NIGHT */}
+              {(editShiftType === 'NORMAL' || editShiftType === 'NIGHT') && (
                 <div className="space-y-2">
                   <Label>Horaires du shift</Label>
                   <div className="flex items-center gap-2">
                     <Input 
                       type="time" 
-                      value={editShift.split('-')[0]} 
-                      onChange={(e) => setEditShift(`${e.target.value}-${editShift.split('-')[1]}`)}
+                      value={editStartTime}
+                      onChange={(e) => setEditStartTime(e.target.value)}
                       className="w-24"
                     />
                     <span className="text-muted-foreground">à</span>
                     <Input 
                       type="time" 
-                      value={editShift.split('-')[1]} 
-                      onChange={(e) => setEditShift(`${editShift.split('-')[0]}-${e.target.value}`)}
+                      value={editEndTime}
+                      onChange={(e) => setEditEndTime(e.target.value)}
                       className="w-24"
                     />
                   </div>
@@ -395,11 +420,13 @@ export default function AdminPlanningManagementPage() {
               {/* Preview */}
               <div className="p-3 bg-slate-50 rounded-lg text-center">
                 <p className="text-xs text-muted-foreground mb-1">Aperçu</p>
-                {editStatus === 'SHIFT' ? (
-                  <span className="font-medium text-indigo-700">{editShift}</span>
+                {(editShiftType === 'NORMAL' || editShiftType === 'NIGHT') ? (
+                  <span className={`font-medium ${editShiftType === 'NIGHT' ? 'text-purple-700' : 'text-indigo-700'}`}>
+                    {editStartTime}-{editEndTime}{editShiftType === 'NIGHT' && ' 🌙'}
+                  </span>
                 ) : (
-                  <Badge className={STATUS_OPTIONS.find(o => o.value === editStatus)?.color + ' border-0'}>
-                    {STATUS_OPTIONS.find(o => o.value === editStatus)?.label}
+                  <Badge className={STATUS_OPTIONS.find(o => o.value === editShiftType)?.color + ' border-0'}>
+                    {STATUS_OPTIONS.find(o => o.value === editShiftType)?.label}
                   </Badge>
                 )}
               </div>

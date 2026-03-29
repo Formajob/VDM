@@ -17,10 +17,15 @@ import {
   FileSpreadsheet, Send, Loader2, Repeat, AlertCircle
 } from 'lucide-react'
 import { useDemoMode, DemoUser } from '@/hooks/useDemoMode'
+import { jsPDF } from 'jspdf'
+import autoTable from 'jspdf-autotable'
 
-interface PlanningDay {
-  shift: string
-  status?: 'SHIFT' | 'CONGE' | 'OFF' | 'MALADIE' | 'AUTRE'
+// ── Interfaces ───────────────────────────────────────────────────────────────
+
+interface PlanningDayRaw {
+  startTime?: string
+  endTime?: string
+  shiftType?: 'NORMAL' | 'NIGHT' | 'OFF' | 'VAC' | 'MALADIE' | 'AUTRE'
 }
 
 interface WeeklyPlanning {
@@ -28,13 +33,13 @@ interface WeeklyPlanning {
   userid: string
   weekstart: string
   weekend: string
-  sunday: PlanningDay | null
-  monday: PlanningDay | null
-  tuesday: PlanningDay | null
-  wednesday: PlanningDay | null
-  thursday: PlanningDay | null
-  friday: PlanningDay | null
-  saturday: PlanningDay | null
+  sunday: PlanningDayRaw | null
+  monday: PlanningDayRaw | null
+  tuesday: PlanningDayRaw | null
+  wednesday: PlanningDayRaw | null
+  thursday: PlanningDayRaw | null
+  friday: PlanningDayRaw | null
+  saturday: PlanningDayRaw | null
   user?: { name: string; email: string; jobRole: string }
 }
 
@@ -50,6 +55,8 @@ interface SwapRequest {
   target?: { name: string }
 }
 
+// ── Constants ────────────────────────────────────────────────────────────────
+
 const DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
 const DAY_LABELS: Record<string, string> = {
   sunday: 'Dim', monday: 'Lun', tuesday: 'Mar', wednesday: 'Mer',
@@ -57,12 +64,15 @@ const DAY_LABELS: Record<string, string> = {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  SHIFT: 'bg-indigo-50 text-indigo-700 border-indigo-200',
-  CONGE: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  NORMAL: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+  NIGHT: 'bg-purple-50 text-purple-700 border-purple-200',
+  VAC: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   OFF: 'bg-slate-50 text-slate-700 border-slate-200',
   MALADIE: 'bg-red-50 text-red-700 border-red-200',
   AUTRE: 'bg-amber-50 text-amber-700 border-amber-200',
 }
+
+// ── Helper Functions ─────────────────────────────────────────────────────────
 
 function getWeekRange(date: Date) {
   const day = date.getDay()
@@ -84,6 +94,36 @@ function formatWeekRange(weekStart: string, weekEnd: string): string {
   return `${start.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })} - ${end.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })}`
 }
 
+function formatShiftDisplay(dayData: PlanningDayRaw | null): string {
+  if (!dayData?.startTime || !dayData?.endTime) return '—'
+  return `${dayData.startTime}-${dayData.endTime}`
+}
+
+function getDayDisplay(dayData: PlanningDayRaw | null) {
+  if (!dayData?.shiftType || dayData.shiftType === 'OFF') {
+    return { text: 'OFF', class: STATUS_COLORS.OFF }
+  }
+  
+  if (dayData.shiftType === 'VAC') {
+    return { text: 'Congé', class: STATUS_COLORS.VAC }
+  }
+  if (dayData.shiftType === 'MALADIE') {
+    return { text: 'Maladie', class: STATUS_COLORS.MALADIE }
+  }
+  if (dayData.shiftType === 'AUTRE') {
+    return { text: 'Autre', class: STATUS_COLORS.AUTRE }
+  }
+  
+  const shiftDisplay = formatShiftDisplay(dayData)
+  const isNight = dayData.shiftType === 'NIGHT'
+  return { 
+    text: `${shiftDisplay}${isNight ? ' 🌙' : ''}`, 
+    class: isNight ? STATUS_COLORS.NIGHT : STATUS_COLORS.NORMAL 
+  }
+}
+
+// ── Main Component ───────────────────────────────────────────────────────────
+
 export default function AdminPlanningReportsPage() {
   const { data, status } = useSession()
   const { isDemo, demoUser } = useDemoMode()
@@ -101,7 +141,7 @@ export default function AdminPlanningReportsPage() {
   const [generating, setGenerating] = useState(false)
   const [sending, setSending] = useState(false)
   
-  const EMAIL_TRANSPORT = '####'
+  const EMAIL_TRANSPORT = ''
   const [includePDF, setIncludePDF] = useState(true)
   const [includeExcel, setIncludeExcel] = useState(true)
   const [emailNote, setEmailNote] = useState('')
@@ -123,10 +163,18 @@ export default function AdminPlanningReportsPage() {
   const fetchPlanningData = useCallback(async () => {
     const res = await fetch(`/api/planning?weekStart=${currentWeek.start}&all=true`)
     if (res.ok) {
-      const data = await res.json()
-      setPlanningData(data)
+      const planningData = await res.json()
+      
+      // ✅ FUSIONNER avec les infos utilisateurs pour avoir jobRole
+      const membersMap = new Map(members.map(m => [m.id, m]))
+      const enrichedData = planningData.map((p: any) => ({
+        ...p,
+        user: membersMap.get(p.userid) || p.user
+      }))
+      
+      setPlanningData(enrichedData)
     }
-  }, [currentWeek.start])
+  }, [currentWeek.start, members])
 
   const fetchSwapData = useCallback(async () => {
     const res = await fetch('/api/swap-request?type=admin')
@@ -187,14 +235,6 @@ export default function AdminPlanningReportsPage() {
     )
   }
 
-  const getDayDisplay = (dayData: PlanningDay | null) => {
-    if (!dayData?.shift) return { text: 'OFF', class: STATUS_COLORS.OFF }
-    if (dayData.status && dayData.status !== 'SHIFT') {
-      return { text: dayData.status, class: STATUS_COLORS[dayData.status] || STATUS_COLORS.AUTRE }
-    }
-    return { text: dayData.shift, class: STATUS_COLORS.SHIFT }
-  }
-
   const generateCSV = () => {
     const filtered = getFilteredPlanning()
     let csv = 'Membre,Rôle,Dimanche,Lundi,Mardi,Mercredi,Jeudi,Vendredi,Samedi\n'
@@ -204,7 +244,7 @@ export default function AdminPlanningReportsPage() {
         `"${p.user?.name || 'N/A'}"`,
         `"${p.user?.jobRole || 'N/A'}"`,
         ...DAYS.map(day => {
-          const dayData = p[day as keyof WeeklyPlanning] as PlanningDay | null
+          const dayData = p[day as keyof WeeklyPlanning] as PlanningDayRaw | null
           const display = getDayDisplay(dayData)
           return `"${display.text}"`
         })
@@ -236,20 +276,135 @@ export default function AdminPlanningReportsPage() {
     return text
   }
 
+  // ✅ GÉNÉRATION PDF AVEC JSPDF (VRAI PDF STYLÉ)
   const handleGeneratePDF = async () => {
     setGenerating(true)
     try {
-      const reportData = reportType === 'weekly' ? generateCSV() : generateModificationsText()
-      const blob = new Blob([reportData], { type: 'text/plain;charset=utf-8' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `rapport_${reportType}_${currentWeek.start}.pdf`
-      a.click()
-      URL.revokeObjectURL(url)
-      toast.success('Rapport téléchargé')
-    } catch {
-      toast.error('Erreur lors du téléchargement')
+      const filtered = getFilteredPlanning()
+      
+      if (filtered.length === 0) {
+        toast.error('Aucune donnée à exporter')
+        setGenerating(false)
+        return
+      }
+      
+      // ✅ Créer un vrai PDF avec jsPDF (format paysage A4)
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+      
+      // 🎨 HEADER avec fond violet
+      doc.setFillColor(79, 70, 229) // Indigo-600
+      doc.rect(0, 0, 297, 25, 'F')
+      
+      doc.setTextColor(255, 255, 255)
+      doc.setFontSize(16)
+      doc.setFont('helvetica', 'bold')
+      doc.text('VD Manager - Planning Hebdomadaire', 14, 12)
+      
+      doc.setFontSize(10)
+      doc.setFont('helvetica', 'normal')
+      doc.text(`Semaine du ${formatWeekRange(currentWeek.start, currentWeek.end)}`, 14, 19)
+      doc.text(
+        `Généré le ${new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}`,
+        250, 12, { align: 'right' }
+      )
+      
+      // 📊 PRÉPARER LES DONNÉES DU TABLEAU
+      const tableHeaders = ['Membre', 'Rôle', ...DAYS.map(d => DAY_LABELS[d].slice(0, 3))]
+      const tableData = filtered.map(p => {
+        return [
+          p.user?.name || 'N/A',
+          p.user?.jobRole || 'N/A',
+          ...DAYS.map(day => {
+            const dayData = p[day as keyof WeeklyPlanning] as PlanningDayRaw | null
+            const display = getDayDisplay(dayData)
+            return display.text
+          })
+        ]
+      })
+      
+      // ✅ GÉNÉRER LE TABLEAU AVEC COULEURS
+      autoTable(doc, {
+        startY: 30,
+        head: [tableHeaders],
+        body: tableData,
+        theme: 'grid',
+        styles: {
+          fontSize: 8,
+          cellPadding: 2.5,
+          overflow: 'linebreak',
+          lineWidth: 0.1,
+          lineColor: [203, 213, 225],
+        },
+        headStyles: {
+          fillColor: [99, 102, 241], // Indigo-500
+          textColor: 255,
+          fontSize: 9,
+          fontStyle: 'bold',
+          halign: 'center',
+        },
+        columnStyles: {
+          0: { cellWidth: 38, fontStyle: 'bold', textColor: [30, 41, 59] },
+          1: { cellWidth: 28, fontStyle: 'italic', textColor: [71, 85, 105] },
+        },
+        didParseCell: (data) => {
+          // ✅ Colorer les cellules selon le statut
+          if (data.section === 'body' && data.column.index >= 2) {
+            const dayIndex = data.column.index - 2
+            const day = DAYS[dayIndex]
+            const planning = filtered[data.row.index]
+            const dayData = planning[day as keyof WeeklyPlanning] as PlanningDayRaw | null
+            
+            if (dayData?.shiftType === 'VAC') {
+              data.cell.styles.fillColor = [236, 253, 245] // Emerald-50
+              data.cell.styles.textColor = [22, 163, 74] // Emerald-600
+            } else if (dayData?.shiftType === 'MALADIE') {
+              data.cell.styles.fillColor = [254, 242, 242] // Red-50
+              data.cell.styles.textColor = [220, 38, 38] // Red-600
+            } else if (dayData?.shiftType === 'NIGHT') {
+              data.cell.styles.fillColor = [250, 245, 255] // Purple-50
+              data.cell.styles.textColor = [126, 34, 206] // Purple-600
+            } else if (dayData?.shiftType === 'AUTRE') {
+              data.cell.styles.fillColor = [255, 251, 235] // Amber-50
+              data.cell.styles.textColor = [180, 83, 9] // Amber-700
+            } else if (!dayData?.shiftType || dayData.shiftType === 'OFF') {
+              data.cell.styles.fillColor = [248, 250, 252] // Slate-50
+              data.cell.styles.textColor = [100, 116, 139] // Slate-500
+            }
+          }
+        },
+        margin: { left: 14, right: 14, top: 10, bottom: 10 },
+        tableLineWidth: 0.2,
+        tableLineColor: [226, 232, 240],
+      })
+      
+      // 🎨 FOOTER avec numéro de page
+      const pageCount = doc.getNumberOfPages()
+      for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i)
+        doc.setFontSize(8)
+        doc.setTextColor(100, 116, 139)
+        doc.setDrawColor(226, 232, 240)
+        doc.line(14, doc.internal.pageSize.height - 15, 283, doc.internal.pageSize.height - 15)
+        doc.text(
+          `© VD Manager • Page ${i}/${pageCount} • Document confidentiel`,
+          14,
+          doc.internal.pageSize.height - 8
+        )
+        doc.text(
+          `Semaine ${currentWeek.start} → ${currentWeek.end}`,
+          283,
+          doc.internal.pageSize.height - 8,
+          { align: 'right' }
+        )
+      }
+      
+      // ✅ TÉLÉCHARGER
+      doc.save(`Planning_VD_${currentWeek.start}.pdf`)
+      toast.success('PDF téléchargé avec succès')
+      
+    } catch (error) {
+      console.error('PDF generation error:', error)
+      toast.error('Erreur lors de la génération du PDF')
     } finally {
       setGenerating(false)
     }
@@ -456,7 +611,7 @@ export default function AdminPlanningReportsPage() {
                         <td className="px-3 py-2 font-medium sticky left-0 bg-white">{p.user?.name || 'N/A'}</td>
                         <td className="px-3 py-2 text-muted-foreground">{p.user?.jobRole || 'N/A'}</td>
                         {DAYS.map(day => {
-                          const dayData = p[day as keyof WeeklyPlanning] as PlanningDay | null
+                          const dayData = p[day as keyof WeeklyPlanning] as PlanningDayRaw | null
                           const display = getDayDisplay(dayData)
                           return (
                             <td key={day} className="px-2 py-2 text-center">
