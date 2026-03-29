@@ -367,7 +367,7 @@ export default function HomePage() {
             <div>
               <h3 className="font-semibold text-slate-800 dark:text-slate-200 mb-3">Développée par</h3>
               <p className="text-sm text-muted-foreground">
-                <span className="font-medium text-slate-700 dark:text-slate-300">Formjob</span><br />
+                <span className="font-medium text-slate-700 dark:text-slate-300">Formajob</span><br />
                 Solutions digitales sur mesure<br />
                 <a
                   href="https://640e5d0f50ca9.site123.me"

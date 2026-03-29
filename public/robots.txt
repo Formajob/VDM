@@ -18,7 +18,8 @@ Allow: /
 
  {/* 
  
- git add .
+cd C:\Users\User18\Desktop\VDM
+git add .
 git commit -m "feat: gestion attendance + correction forçage statut temps reel"
 git push origin main
 
