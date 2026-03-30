@@ -20,7 +20,7 @@ Allow: /
  
 cd C:\Users\User18\Desktop\VDM
 git add .
-git commit -m "feat: correction : affichache planning +report pdf + "
+git commit -m "feat: correction : time zone  "
 git push origin main
 
  */}

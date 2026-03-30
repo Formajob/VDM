@@ -5,7 +5,6 @@ import { authOptions } from '@/lib/auth'
 
 const TOLERANCE_MINUTES = 5
 
-// ✅ FONCTION: Formatage de date sans timezone (YYYY-MM-DD en local)
 function formatDateLocal(date: Date): string {
   return [
     date.getFullYear(),
@@ -21,22 +20,29 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url)
     const userId = searchParams.get('userId')
+    const startDate = searchParams.get('startDate')
+    const endDate = searchParams.get('endDate')
+    const date = searchParams.get('date')
 
-    // 1️⃣ Fetch attendance
     let attendanceQuery = supabaseAdmin
       .from('Attendance')
       .select('*, user:User!Attendance_userId_fkey (id, name, email, "jobRole")')
       .order('startedAt', { ascending: false })
 
-    if (userId) {
+    if (userId && userId !== 'all') {
       attendanceQuery = attendanceQuery.eq('userId', userId)
+    }
+
+    if (date) {
+      attendanceQuery = attendanceQuery.gte('startedAt', `${date}T00:00:00`).lte('startedAt', `${date}T23:59:59`)
+    } else if (startDate && endDate) {
+      attendanceQuery = attendanceQuery.gte('startedAt', `${startDate}T00:00:00`).lte('startedAt', `${endDate}T23:59:59`)
     }
 
     const { data: attendanceData, error: attendanceError } = await attendanceQuery
     if (attendanceError) throw attendanceError
     if (!attendanceData || attendanceData.length === 0) return NextResponse.json([])
 
-    // 2️⃣ Fetch ALL plannings
     const userIds = [...new Set(attendanceData.map((a: any) => a.userId))]
     
     let planningQuery = supabaseAdmin.from('Planning').select('*')
@@ -49,7 +55,6 @@ export async function GET(request: Request) {
     const { data: allPlanning, error: planningError } = await planningQuery
     if (planningError) console.error('Planning error:', planningError)
     
-    // 3️⃣ Filtrer par date range en JS
     const dates = attendanceData.map((a: any) => a.startedAt.split('T')[0])
     const minDate = dates.sort()[0]
     const maxDate = [...dates].reverse()[0]
@@ -58,7 +63,6 @@ export async function GET(request: Request) {
       return p.weekstart <= maxDate && p.weekend >= minDate
     })
 
-    // 4️⃣ Build planning map - ✅ AVEC formatDateLocal
     const planningMap = new Map<string, any>()
     const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
     
@@ -69,29 +73,22 @@ export async function GET(request: Request) {
         const currentDate = new Date(weekStart)
         currentDate.setDate(weekStart.getDate() + index)
         
-        // ✅ CORRECTION: Utiliser formatDateLocal au lieu de toISOString()
         const dateStr = formatDateLocal(currentDate)
         const key = `${p.userid}_${dateStr}`
         
         const dayData = p[day]
         if (dayData?.shift) {
           planningMap.set(key, { shift: dayData.shift })
-          console.log('✅ Mapped:', key, '=>', dayData.shift)
         }
       })
     })
 
-    console.log('🗺️ Total mapped days:', planningMap.size)
-
-    // 5️⃣ Enrich records - ✅ AVEC formatDateLocal pour la lookup
     const enrichedData = attendanceData.map((record: any) => {
-      // ✅ CORRECTION: Utiliser formatDateLocal pour la date du record
       const recordDate = formatDateLocal(new Date(record.startedAt))
       const planningKey = `${record.userId}_${recordDate}`
       const planning = planningMap.get(planningKey)
       
       const metrics = calculatePerformance(record, planning)
-
       return { ...record, ...metrics }
     })
 
@@ -179,23 +176,9 @@ export async function POST(request: Request) {
     const body = await request.json()
     const now = new Date()
 
-    console.log('🔹 POST /api/attendance:', {
-      id: body.id,
-      userId: body.userId,
-      targetUserId: body.targetUserId,
-      status: body.status,
-      forceStatus: body.forceStatus,
-      fullDay: body.fullDay,
-    })
+    console.log('🔹 POST /api/attendance:', body)
 
-    // ✅ DÉTERMINER L'UTILISATEUR CIBLE
-    // Soit body.userId (membre qui clock), soit body.targetUserId (admin qui force)
-    const targetUserId = body.targetUserId || body.userId
-    if (!targetUserId) {
-      return NextResponse.json({ error: 'userId or targetUserId required' }, { status: 400 })
-    }
-
-    // ✅ CAS 1: Clock-out (mise à jour d'un pointage existant)
+    // ✅ CAS 1: Clock-out (mise à jour d'un record existant)
     if (body.id && body.endedAt && !body.forceStatus) {
       console.log('⏰ Clock-out for:', body.id)
       
@@ -210,20 +193,115 @@ export async function POST(request: Request) {
         .select()
         .single()
 
-      if (error) {
-        console.error('❌ Clock-out error:', error)
-        throw error
-      }
+      if (error) throw error
       return NextResponse.json(data, { status: 200 })
     }
 
-    // ✅ CAS 2: Full day status (ABSENT, CONGE) - admin force
+    const targetUserId = body.targetUserId || body.userId
+    if (!targetUserId) {
+      return NextResponse.json({ error: 'userId or targetUserId required' }, { status: 400 })
+    }
+
+    // ✅ FONCTION: Fermer tout record ouvert
+    async function closeOpenRecord(userId: string, closeTime: Date, isDeparture: boolean = false) {
+      const today = formatDateLocal(closeTime)
+      
+      const { data: openRecords, error: fetchError } = await supabaseAdmin
+        .from('Attendance')
+        .select('id, startedAt, status')
+        .eq('userId', userId)
+        .is('endedAt', null)
+        .gte('startedAt', `${today}T00:00:00`)
+        .lte('startedAt', `${today}T23:59:59`)
+
+      if (fetchError) return
+
+      if (openRecords && openRecords.length > 0) {
+        console.log('🔒 Closing', openRecords.length, 'open record(s)')
+        
+        for (const record of openRecords) {
+          // ✅ CORRECTION CRITIQUE: Ajouter 'Z' si absent
+          const startedAtStr = record.startedAt.endsWith('Z') 
+            ? record.startedAt 
+            : record.startedAt + 'Z'
+          
+          const started = new Date(startedAtStr)
+          const durationMin = Math.max(0, Math.round((closeTime.getTime() - started.getTime()) / 60000))
+          
+          console.log('  - Closing record:', {
+            id: record.id,
+            status: record.status,
+            startedAt: record.startedAt,
+            startedAtCorrected: startedAtStr,
+            closeTime: closeTime.toISOString(),
+            diffMs: closeTime.getTime() - started.getTime(),
+            durationMin
+          })
+          
+          let isEarlyDeparture = false
+          let earlyMinutes = 0
+          let isLate = false
+          let lateMinutes = 0
+          
+          if (isDeparture && record.status === 'EN_PRODUCTION') {
+            const { data: planning } = await supabaseAdmin
+              .from('Planning')
+              .select('*')
+              .eq('userid', userId)
+              .lte('weekstart', today)
+              .gte('weekend', today)
+              .single()
+            
+            if (planning) {
+              const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+              const todayDate = new Date(today + 'T00:00:00Z')
+              const weekStart = new Date(planning.weekstart + 'T00:00:00Z')
+              const dayIndex = Math.floor((todayDate.getTime() - weekStart.getTime()) / (1000 * 60 * 60 * 24))
+              
+              if (dayIndex >= 0 && dayIndex < 7) {
+                const dayName = days[dayIndex]
+                if (planning[dayName]?.shift) {
+                  const [plannedStart, plannedEnd] = planning[dayName].shift.split('-')
+                  
+                  const plannedStartTime = new Date(`${today}T${plannedStart}Z`)
+                  const plannedEndTime = new Date(`${today}T${plannedEnd}Z`)
+                  const actualStart = new Date(startedAtStr)
+                  
+                  if (actualStart > plannedStartTime) {
+                    lateMinutes = Math.round((actualStart.getTime() - plannedStartTime.getTime()) / 60000)
+                    if (lateMinutes > 5) isLate = true
+                  }
+                  
+                  if (closeTime < plannedEndTime) {
+                    isEarlyDeparture = true
+                    earlyMinutes = Math.round((plannedEndTime.getTime() - closeTime.getTime()) / 60000)
+                  }
+                }
+              }
+            }
+          }
+          
+          await supabaseAdmin
+            .from('Attendance')
+            .update({
+              endedAt: closeTime.toISOString(),
+              durationMin: durationMin,
+              ...(isDeparture && record.status === 'EN_PRODUCTION' && {
+                isLate,
+                lateMinutes: isLate ? lateMinutes : null,
+                isEarlyDeparture,
+                earlyMinutes: earlyMinutes > 0 ? earlyMinutes : null,
+              }),
+              updatedAt: closeTime.toISOString(),
+            })
+            .eq('id', record.id)
+        }
+      }
+    }
+
     if (body.fullDay && body.forceStatus) {
-      console.log('📅 Full day status for:', targetUserId, 'on', body.startedAt)
+      const date = body.startedAt || formatDateLocal(now)
       
-      const date = body.startedAt || todayStr()
-      
-      // Supprimer les entrées existantes pour ce jour
       await supabaseAdmin
         .from('Attendance')
         .delete()
@@ -231,18 +309,14 @@ export async function POST(request: Request) {
         .gte('startedAt', `${date}T00:00:00`)
         .lte('startedAt', `${date}T23:59:59`)
       
-      // Créer l'entrée full day
       const insertData: any = {
-        id: body.id || `fullday_${targetUserId}_${date}`,
+        id: body.id || crypto.randomUUID(),
         userId: targetUserId,
         status: body.status,
-        startedAt: `${date}T08:00:00`,
-        endedAt: `${date}T17:00:00`,
-        durationMin: 540, // 9 hours
+        startedAt: `${date}T08:00:00Z`,
+        endedAt: `${date}T17:00:00Z`,
+        durationMin: 540,
         note: body.note || `Statut forcé: ${body.status}`,
-        isAdjusted: true,
-        adjustedBy: (session.user as any)?.id,
-        adjustedAt: now.toISOString(),
         createdAt: now.toISOString(),
         updatedAt: now.toISOString(),
       }
@@ -257,9 +331,8 @@ export async function POST(request: Request) {
       return NextResponse.json(data, { status: 201 })
     }
 
-    // ✅ CAS 3: Admin force status change (non full-day)
     if (body.forceStatus) {
-      console.log('⚡ Force status for:', targetUserId, '=>', body.status)
+      await closeOpenRecord(targetUserId, now, false)
       
       const insertData: any = {
         id: body.id || crypto.randomUUID(),
@@ -269,9 +342,6 @@ export async function POST(request: Request) {
         endedAt: body.endedAt || null,
         durationMin: body.durationMin || null,
         note: body.note || null,
-        isAdjusted: true,
-        adjustedBy: (session.user as any)?.id,
-        adjustedAt: now.toISOString(),
         createdAt: now.toISOString(),
         updatedAt: now.toISOString(),
       }
@@ -286,7 +356,13 @@ export async function POST(request: Request) {
       return NextResponse.json(data, { status: 201 })
     }
 
-    // ✅ CAS 4: Clock-in ou ajout normal (membre ou admin sans forceStatus)
+    if (body.status === 'DEPART' || body.action === 'depart') {
+      await closeOpenRecord(targetUserId, now, true)
+      return NextResponse.json({ success: true, message: 'Departure recorded' }, { status: 200 })
+    }
+
+    await closeOpenRecord(targetUserId, now, false)
+
     const insertData: any = {
       id: body.id || crypto.randomUUID(),
       userId: targetUserId,
@@ -307,16 +383,17 @@ export async function POST(request: Request) {
 
     if (error) throw error
     return NextResponse.json(data, { status: 201 })
+    
   } catch (error) {
     console.error('❌ Error in POST /api/attendance:', error)
     return NextResponse.json({ error: 'Failed to save attendance' }, { status: 500 })
   }
 }
 
-// Helper pour todayStr
 function todayStr(): string {
   return new Date().toISOString().split('T')[0]
 }
+
 export async function DELETE(request: Request) {
   try {
     const session = await getServerSession(authOptions)
@@ -356,12 +433,6 @@ export async function PUT(request: Request) {
         endedAt: body.endedAt,
         durationMin: body.durationMin,
         note: body.note,
-        isAdjusted: body.isAdjustment || false,
-        adjustedBy: body.isAdjustment ? (session.user as any).id : null,
-        adjustedAt: body.isAdjustment ? now.toISOString() : null,
-        adjustmentNote: body.adjustmentNote || null,
-        overrideIsLate: body.overrideIsLate,
-        overrideIsEarly: body.overrideIsEarly,
         updatedAt: now.toISOString(),
       })
       .eq('id', body.id)
