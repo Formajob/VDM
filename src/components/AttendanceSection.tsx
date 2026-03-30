@@ -87,7 +87,6 @@ export default function AttendanceSection({ userId }: { userId: string }) {
     }
   }, [today])
 
-  // ✅ POLLING toutes les 5 secondes
   useEffect(() => {
     fetchRecords()
     const iv = setInterval(fetchRecords, 5000)
@@ -96,7 +95,6 @@ export default function AttendanceSection({ userId }: { userId: string }) {
 
   useEffect(() => {
     if (!activeRecord) { setElapsed(0); return }
-    // ✅ AJOUTER 'Z' pour forcer UTC
     const start = new Date(activeRecord.startedAt + 'Z')
     const update = () => {
       const diff = (Date.now() - start.getTime()) / 60000
@@ -107,11 +105,9 @@ export default function AttendanceSection({ userId }: { userId: string }) {
     return () => clearInterval(iv)
   }, [activeRecord])
 
-  // ✅ CORRECTION PRINCIPALE : Gestion correcte du départ
   const handleStatus = async (status: AttendanceStatus | 'DEPART') => {
     setLoading(true)
     try {
-      // ✅ CAS SPÉCIAL: DÉPART → Fermer le record actif
       if (status === 'DEPART') {
         if (!activeRecord) {
           toast.error('Aucun shift actif à fermer')
@@ -120,26 +116,15 @@ export default function AttendanceSection({ userId }: { userId: string }) {
         }
         
         const now = new Date()
-        // ✅ AJOUTER 'Z' pour forcer UTC dans le calcul de durée
-        const started = new Date(activeRecord.startedAt + 'Z')
-        const durationMin = Math.max(0, Math.round((now.getTime() - started.getTime()) / 60000))
+        const durationMin = Math.round((now.getTime() - new Date(activeRecord.startedAt).getTime()) / 60000)
         
-        console.log('🚪 Departure calc:', {
-          startedAt: activeRecord.startedAt,
-          startedAtCorrected: activeRecord.startedAt + 'Z',
-          now: now.toISOString(),
-          diffMs: now.getTime() - started.getTime(),
-          durationMin
-        })
-        
-        // ✅ Mettre à jour le record actif (pas créer un nouveau)
         const res = await fetch('/api/attendance', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            id: activeRecord.id,        // ✅ ID du record à fermer
-            endedAt: now.toISOString(), // ✅ Heure de fin
-            durationMin: durationMin,   // ✅ Durée calculée correctement
+            id: activeRecord.id,
+            endedAt: now.toISOString(),
+            durationMin: durationMin,
           }),
         })
         
@@ -150,7 +135,6 @@ export default function AttendanceSection({ userId }: { userId: string }) {
         return
       }
       
-      // ✅ CAS NORMAL: Changement de statut
       const res = await fetch('/api/attendance', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
