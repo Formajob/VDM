@@ -1,5 +1,4 @@
 'use client'
-
 import { useEffect, useState, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -11,13 +10,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { toast } from 'sonner'
 import {
-  Clock, Coffee, UtensilsCrossed, Users, BookOpen, Handshake,
-  UserX, Palmtree, Play, AlertTriangle, Download, RefreshCw,
-  LogOut, Plus, Pencil, Trash2, FileText,
+Clock, Coffee, UtensilsCrossed, Users, BookOpen, Handshake,
+UserX, Palmtree, Play, AlertTriangle, Download, RefreshCw,
+LogOut, Plus, Pencil, Trash2, FileText,
 } from 'lucide-react'
 
 // ── Types ────────────────────────────────────────────────────────────────────
-
 type AttendanceStatus = 'EN_PRODUCTION' | 'PAUSE' | 'LUNCH' | 'REUNION' | 'RENCONTRE' | 'FORMATION' | 'ABSENT' | 'CONGE'
 type StatusOrDepart = AttendanceStatus | 'DEPART'
 
@@ -30,6 +28,12 @@ interface AttendanceRecord {
   durationMin: number | null
   note: string | null
   user: { id: string; name: string; email: string; jobRole: string | null }
+  // ✅ AJOUTER CES CHAMPS POUR LES ALERTES
+  isLate?: boolean
+  lateMinutes?: number
+  isEarlyDeparture?: boolean
+  earlyMinutes?: number
+  plannedShift?: { start: string; end: string }
 }
 
 interface UserItem {
@@ -37,17 +41,16 @@ interface UserItem {
 }
 
 // ── Config ───────────────────────────────────────────────────────────────────
-
 const STATUS_CONFIG: Record<string, { label: string; icon: React.ReactNode; color: string; bg: string; limitMin: number | null }> = {
-  EN_PRODUCTION: { label: 'Shift',     icon: <Play className="w-3 h-3" />,            color: 'text-indigo-700', bg: 'bg-indigo-100', limitMin: 450 },
-  PAUSE:         { label: 'Pause',     icon: <Coffee className="w-3 h-3" />,          color: 'text-amber-700',  bg: 'bg-amber-100',  limitMin: 30  },
-  LUNCH:         { label: 'Lunch',     icon: <UtensilsCrossed className="w-3 h-3" />, color: 'text-orange-700', bg: 'bg-orange-100', limitMin: 60  },
-  REUNION:       { label: 'Réunion',   icon: <Users className="w-3 h-3" />,           color: 'text-blue-700',   bg: 'bg-blue-100',   limitMin: 60  },
-  RENCONTRE:     { label: 'Rencontre', icon: <Handshake className="w-3 h-3" />,       color: 'text-purple-700', bg: 'bg-purple-100', limitMin: 60  },
-  FORMATION:     { label: 'Formation', icon: <BookOpen className="w-3 h-3" />,        color: 'text-emerald-700',bg: 'bg-emerald-100',limitMin: 60  },
-  ABSENT:        { label: 'Absent',    icon: <UserX className="w-3 h-3" />,           color: 'text-red-700',    bg: 'bg-red-100',    limitMin: null },
-  CONGE:         { label: 'Congé',     icon: <Palmtree className="w-3 h-3" />,        color: 'text-teal-700',   bg: 'bg-teal-100',   limitMin: null },
-  DEPART:        { label: 'Départ',    icon: <LogOut className="w-3 h-3" />,          color: 'text-slate-600',  bg: 'bg-slate-100',  limitMin: null },
+  EN_PRODUCTION: { label: 'Shift',     icon: <Play className="w-3.5 h-3.5" />,            color: 'text-indigo-700', bg: 'bg-indigo-100', limitMin: 450 },
+  PAUSE:         { label: 'Pause',     icon: <Coffee className="w-3.5 h-3.5" />,          color: 'text-amber-700',  bg: 'bg-amber-100',  limitMin: 30  },
+  LUNCH:         { label: 'Lunch',     icon: <UtensilsCrossed className="w-3.5 h-3.5" />, color: 'text-orange-700', bg: 'bg-orange-100', limitMin: 60  },
+  REUNION:       { label: 'Réunion',   icon: <Users className="w-3.5 h-3.5" />,           color: 'text-blue-700',   bg: 'bg-blue-100',   limitMin: 60  },
+  RENCONTRE:     { label: 'Rencontre', icon: <Handshake className="w-3.5 h-3.5" />,       color: 'text-purple-700', bg: 'bg-purple-100', limitMin: 60  },
+  FORMATION:     { label: 'Formation', icon: <BookOpen className="w-3.5 h-3.5" />,        color: 'text-emerald-700',bg: 'bg-emerald-100',limitMin: 60  },
+  ABSENT:        { label: 'Absent',    icon: <UserX className="w-3.5 h-3.5" />,           color: 'text-red-700',    bg: 'bg-red-100',    limitMin: null },
+  CONGE:         { label: 'Congé',     icon: <Palmtree className="w-3.5 h-3.5" />,        color: 'text-teal-700',   bg: 'bg-teal-100',   limitMin: null },
+  DEPART:        { label: 'Départ',    icon: <LogOut className="w-3.5 h-3.5" />,          color: 'text-slate-600',  bg: 'bg-slate-100',  limitMin: null },
 }
 
 const MEMBER_STATUSES = Object.keys(STATUS_CONFIG).filter(s => s !== 'DEPART') as AttendanceStatus[]
@@ -55,7 +58,6 @@ const ALL_STATUSES_WITH_DEPART = Object.keys(STATUS_CONFIG) as StatusOrDepart[]
 const FULLDAY_STATUSES = ['ABSENT', 'CONGE']
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
 function fmtDur(min: number): string {
   const h = Math.floor(min / 60), m = Math.floor(min % 60)
   return h > 0 ? `${h}h${m.toString().padStart(2, '0')}` : `${m}min`
@@ -88,7 +90,6 @@ function monthRange() {
 }
 
 // ── Realtime Tab ─────────────────────────────────────────────────────────────
-
 interface MemberStatus {
   user: UserItem
   activeRecord: AttendanceRecord | null
@@ -99,7 +100,7 @@ interface MemberStatus {
 
 interface RealtimeTabProps {
   users: UserItem[]
-  filterMemberIds?: string[]  // ✅ NOUVELLE PROP
+  filterMemberIds?: string[]
 }
 
 function RealtimeTab({ users, filterMemberIds }: RealtimeTabProps) {
@@ -107,14 +108,14 @@ function RealtimeTab({ users, filterMemberIds }: RealtimeTabProps) {
   const [tick, setTick] = useState(0)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [changingUser, setChangingUser] = useState<string | null>(null)
-  const [changeStatus, setChangeStatus] = useState<StatusOrDepart>('EN_PRODUCTION')
+  const [changeStatus, setChangeStatus] = useState('EN_PRODUCTION')
   const [changing, setChanging] = useState(false)
 
   const fetchAll = useCallback(async () => {
     const res = await fetch(`/api/attendance?all=true&date=${todayStr()}`)
     if (!res.ok) return
     const records: AttendanceRecord[] = await res.json()
-
+    
     const byUser = new Map<string, AttendanceRecord[]>()
     for (const r of records) {
       if (!byUser.has(r.userId)) byUser.set(r.userId, [])
@@ -122,14 +123,14 @@ function RealtimeTab({ users, filterMemberIds }: RealtimeTabProps) {
     }
 
     const now = Date.now()
-    
+
     // Filter out ADMIN users
     let activeUsers = users.filter(u => {
       const isAdminEmail = u.email?.toLowerCase().includes('admin')
       const isAdminRole = u.jobRole === 'ADMIN'
       return !isAdminEmail && !isAdminRole
     })
-    
+
     // ✅ FILTRER par filterMemberIds si fourni
     if (filterMemberIds && filterMemberIds.length > 0) {
       activeUsers = activeUsers.filter(u => filterMemberIds.includes(u.id))
@@ -149,21 +150,35 @@ function RealtimeTab({ users, filterMemberIds }: RealtimeTabProps) {
         }, 0)
 
       const alerts: string[] = []
+      
+      // ✅ VÉRIFIER LES RETARDS (isLate depuis l'API)
+      if (active && active.isLate && active.lateMinutes && active.lateMinutes < 999) {
+        alerts.push(`⚠️ Retard ${fmtDur(active.lateMinutes)}`)
+      }
+      
+      // ✅ VÉRIFIER LES DÉPASSEMENTS (pause > 30min, lunch > 60min, etc.)
       if (active) {
         const cfg = STATUS_CONFIG[active.status]
         const elapsed = (now - new Date(active.startedAt + 'Z').getTime()) / 60000
         if (cfg?.limitMin && elapsed > cfg.limitMin) {
-          alerts.push(`Dépassement ${cfg.label} +${fmtDur(elapsed - cfg.limitMin)}`)
+          alerts.push(`⏱️ Dépassement ${cfg.label} +${fmtDur(elapsed - cfg.limitMin)}`)
         }
       }
+      
+      // ✅ VÉRIFIER DÉPART ANTICIPÉ
       if (departed && totalShiftMin > 0 && totalShiftMin < 450) {
-        alerts.push(`Départ anticipé (${fmtDur(totalShiftMin)} / 7h30)`)
+        alerts.push(`🕐 Départ anticipé (${fmtDur(totalShiftMin)} / 7h30)`)
+      }
+      
+      // ✅ VÉRIFIER earlyDeparture depuis l'API
+      if (active && active.isEarlyDeparture && active.earlyMinutes) {
+        alerts.push(`🕐 Départ anticipé ${fmtDur(active.earlyMinutes)}`)
       }
 
       return { user, activeRecord: active, totalShiftMin, departed, alerts }
     })
 
-    setMembers(statuses)
+    setMembers(statuses) 
     setLastUpdated(new Date())
   }, [users, filterMemberIds])
 
@@ -214,18 +229,21 @@ function RealtimeTab({ users, filterMemberIds }: RealtimeTabProps) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <div className="flex gap-4 text-sm text-muted-foreground">
-          <span>{members.filter(m => m.activeRecord).length} actifs</span>
-          <span>{members.filter(m => m.departed).length} partis</span>
-          <span className="text-red-600">{members.filter(m => m.alerts.length > 0).length} alertes</span>
+        <div className="flex items-center gap-4 text-sm">
+          <span className="text-indigo-600 font-semibold">{members.filter(m => m.activeRecord).length} actifs</span>
+          <span className="text-slate-600">{members.filter(m => m.departed).length} partis</span>
+          <span className="text-red-600 font-semibold">{members.filter(m => m.alerts.length > 0).length} alertes</span>
         </div>
         <Button size="sm" variant="outline" className="gap-1" onClick={fetchAll}>
-          <RefreshCw className="w-3 h-3" />Actualiser
+          <RefreshCw className="w-4 h-4" />
+          Actualiser
         </Button>
+        {lastUpdated && (
+          <p className="text-xs text-muted-foreground">
+            Mis à jour à {fmtTime(lastUpdated.toISOString())} · auto 30s
+          </p>
+        )}
       </div>
-      {lastUpdated && (
-        <p className="text-xs text-muted-foreground">Mis à jour à {fmtTime(lastUpdated.toISOString())} · auto 30s</p>
-      )}
 
       <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
         {members.map(m => {
@@ -236,7 +254,7 @@ function RealtimeTab({ users, filterMemberIds }: RealtimeTabProps) {
           const isOvertime = cfg?.limitMin && elapsed > cfg.limitMin
 
           return (
-            <Card key={m.user.id} className={`border-2 transition-all ${m.alerts.length > 0 ? 'border-red-300' : m.activeRecord ? 'border-indigo-200' : 'border-slate-200'}`}>
+            <Card key={m.user.id} className={`border-2 transition-all ${m.alerts.length > 0 ? 'border-red-300 bg-red-50/20' : m.activeRecord ? 'border-indigo-200' : 'border-slate-200'}`}>
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
                   <div>
@@ -298,7 +316,7 @@ function RealtimeTab({ users, filterMemberIds }: RealtimeTabProps) {
             <div className="space-y-2">
               <Label>Nouveau statut</Label>
               <Select value={changeStatus} onValueChange={v => setChangeStatus(v as StatusOrDepart)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger> <SelectValue /> </SelectTrigger>
                 <SelectContent>
                   {ALL_STATUSES_WITH_DEPART.map(s => (
                     <SelectItem key={s} value={s}>
@@ -333,9 +351,64 @@ function RealtimeTab({ users, filterMemberIds }: RealtimeTabProps) {
 }
 
 // ── Management Tab ────────────────────────────────────────────────────────────
+// ... (garder le reste du fichier inchangé)
 
+// ── History Tab ───────────────────────────────────────────────────────────────
+// ... (garder le reste du fichier inchangé)
+
+// ── Reports Tab ───────────────────────────────────────────────────────────────
+// ... (garder le reste du fichier inchangé)
+
+// ── Main ─────────────────────────────────────────────────────────────────────
+interface AdminAttendanceViewProps {
+  showOnlyRealtime?: boolean
+  filterMemberIds?: string[]
+}
+
+export default function AdminAttendanceView({
+  showOnlyRealtime = false,
+  filterMemberIds
+}: AdminAttendanceViewProps) {
+  const [users, setUsers] = useState<UserItem[]>([])
+
+  useEffect(() => {
+    fetch('/api/users').then(r => r.json()).then(data => {
+      setUsers(data.map((u: any) => ({ id: u.id, name: u.name, email: u.email, jobRole: u.jobRole || null })))
+    })
+  }, [])
+
+  return (
+    <div className="space-y-6">
+      {!showOnlyRealtime && (
+        <div>
+          <h1 className="text-2xl font-bold">Gestion des présences</h1>
+          <p className="text-muted-foreground">Suivez et gérez les présences en temps réel</p>
+        </div>
+      )}
+
+      {showOnlyRealtime ? (
+        <RealtimeTab users={users} filterMemberIds={filterMemberIds} />
+      ) : (
+        <Tabs defaultValue="realtime" className="space-y-4">
+          <TabsList>
+            <TabsTrigger value="realtime">Temps réel</TabsTrigger>
+            <TabsTrigger value="history">Historique</TabsTrigger>
+            <TabsTrigger value="management">Gestion</TabsTrigger>
+            <TabsTrigger value="reports">Rapports</TabsTrigger>
+          </TabsList>
+          <TabsContent value="realtime"><RealtimeTab users={users} filterMemberIds={filterMemberIds} /></TabsContent>
+          <TabsContent value="history"><HistoryTab users={users} /></TabsContent>
+          <TabsContent value="management"><ManagementTab users={users} /></TabsContent>
+          <TabsContent value="reports"><ReportsTab users={users} /></TabsContent>
+        </Tabs>
+      )}
+    </div>
+  )
+}
+
+// ── Management Tab Component ─────────────────────────────────────────────────
 function ManagementTab({ users }: { users: UserItem[] }) {
-  const [selectedUser, setSelectedUser] = useState<string>('')
+  const [selectedUser, setSelectedUser] = useState('')
   const [selectedDate, setSelectedDate] = useState(todayStr())
   const [records, setRecords] = useState<AttendanceRecord[]>([])
   const [loading, setLoading] = useState(false)
@@ -362,7 +435,6 @@ function ManagementTab({ users }: { users: UserItem[] }) {
         forceStatus: true,
         note: form.note || null,
       }
-
       if (isFullDay) {
         body.fullDay = true
         body.startedAt = selectedDate
@@ -389,10 +461,7 @@ function ManagementTab({ users }: { users: UserItem[] }) {
   const handleEdit = async () => {
     if (!editRecord) return
     try {
-      // 1. Supprimer l'ancienne entrée
       await fetch(`/api/attendance/${editRecord.id}`, { method: 'DELETE' })
-      
-      // 2. Créer la nouvelle entrée avec les données mises à jour
       const isFullDay = FULLDAY_STATUSES.includes(form.status)
       const body: any = {
         status: form.status,
@@ -400,7 +469,6 @@ function ManagementTab({ users }: { users: UserItem[] }) {
         forceStatus: true,
         note: form.note || null,
       }
-
       if (isFullDay) {
         body.fullDay = true
         body.startedAt = selectedDate
@@ -444,28 +512,32 @@ function ManagementTab({ users }: { users: UserItem[] }) {
 
   return (
     <div className="space-y-4">
-      <div className="grid sm:grid-cols-3 gap-4">
-        <div className="space-y-1">
-          <Label className="text-xs">Membre</Label>
+      <div className="grid md:grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label>Membre</Label>
           <Select value={selectedUser} onValueChange={setSelectedUser}>
-            <SelectTrigger><SelectValue placeholder="Choisir un membre" /></SelectTrigger>
-            <SelectContent>{users.map(u => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}</SelectContent>
+            <SelectTrigger><SelectValue placeholder="Sélectionner un membre" /></SelectTrigger>
+            <SelectContent>
+              {users.filter(u => u.jobRole !== 'ADMIN' && !u.email?.toLowerCase().includes('admin')).map(u => (
+                <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+              ))}
+            </SelectContent>
           </Select>
         </div>
-        <div className="space-y-1">
-          <Label className="text-xs">Date</Label>
+        <div className="space-y-2">
+          <Label>Date</Label>
           <Input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} />
         </div>
-        <div className="flex items-end">
-          <Button
-            className="gap-2 bg-indigo-600 text-white hover:bg-indigo-700 w-full"
-            onClick={() => { setShowAdd(true); setForm({ status: 'EN_PRODUCTION', startedAt: '', endedAt: '', note: '' }) }}
-            disabled={!selectedUser}
-          >
-            <Plus className="w-4 h-4" />Ajouter une entrée
-          </Button>
-        </div>
       </div>
+
+      <Button
+        className="gap-2 bg-indigo-600 text-white hover:bg-indigo-700 w-full"
+        onClick={() => { setShowAdd(true); setForm({ status: 'EN_PRODUCTION', startedAt: '', endedAt: '', note: '' }) }}
+        disabled={!selectedUser}
+      >
+        <Plus className="w-4 h-4" />
+        Ajouter une entrée
+      </Button>
 
       {loading ? (
         <div className="text-center py-8 text-muted-foreground text-sm">Chargement...</div>
@@ -591,10 +663,9 @@ function ManagementTab({ users }: { users: UserItem[] }) {
   )
 }
 
-// ── History Tab ───────────────────────────────────────────────────────────────
-
+// ── History Tab Component ────────────────────────────────────────────────────
 function HistoryTab({ users }: { users: UserItem[] }) {
-  const [selectedUser, setSelectedUser] = useState<string>('')
+  const [selectedUser, setSelectedUser] = useState('')
   const [selectedDate, setSelectedDate] = useState(todayStr())
   const [records, setRecords] = useState<AttendanceRecord[]>([])
   const [loading, setLoading] = useState(false)
@@ -621,7 +692,6 @@ function HistoryTab({ users }: { users: UserItem[] }) {
     if (!sortConfig) return 0
     const { key, direction } = sortConfig
     let aVal: any, bVal: any
-    
     switch(key) {
       case 'date': aVal = a.startedAt; bVal = b.startedAt; break
       case 'status': aVal = STATUS_CONFIG[a.status]?.label; bVal = STATUS_CONFIG[b.status]?.label; break
@@ -631,7 +701,6 @@ function HistoryTab({ users }: { users: UserItem[] }) {
       case 'note': aVal = a.note || ''; bVal = b.note || ''; break
       default: return 0
     }
-    
     if (aVal < bVal) return direction === 'asc' ? -1 : 1
     if (aVal > bVal) return direction === 'asc' ? 1 : -1
     return 0
@@ -646,13 +715,11 @@ function HistoryTab({ users }: { users: UserItem[] }) {
     return null
   }
 
-  // Calculate percentages for gauge
   const totalDuration = records.reduce((acc, r) => acc + (r.durationMin || 0), 0)
   const shiftDuration = records.filter(r => r.status === 'EN_PRODUCTION').reduce((acc, r) => acc + (r.durationMin || 0), 0)
   const pauseDuration = records.filter(r => r.status === 'PAUSE').reduce((acc, r) => acc + (r.durationMin || 0), 0)
   const lunchDuration = records.filter(r => r.status === 'LUNCH').reduce((acc, r) => acc + (r.durationMin || 0), 0)
   const otherDuration = totalDuration - shiftDuration - pauseDuration - lunchDuration
-
   const shiftPercent = totalDuration > 0 ? (shiftDuration / totalDuration) * 100 : 0
   const pausePercent = totalDuration > 0 ? (pauseDuration / totalDuration) * 100 : 0
   const lunchPercent = totalDuration > 0 ? (lunchDuration / totalDuration) * 100 : 0
@@ -660,11 +727,11 @@ function HistoryTab({ users }: { users: UserItem[] }) {
 
   return (
     <div className="space-y-4">
-      <div className="grid sm:grid-cols-2 gap-4">
-        <div className="space-y-1">
-          <Label className="text-xs">Membre</Label>
+      <div className="grid md:grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label>Membre</Label>
           <Select value={selectedUser} onValueChange={setSelectedUser}>
-            <SelectTrigger><SelectValue placeholder="Choisir un membre" /></SelectTrigger>
+            <SelectTrigger><SelectValue placeholder="Sélectionner un membre" /></SelectTrigger>
             <SelectContent>
               {users.filter(u => u.jobRole !== 'ADMIN' && !u.email?.toLowerCase().includes('admin')).map(u => (
                 <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
@@ -672,8 +739,8 @@ function HistoryTab({ users }: { users: UserItem[] }) {
             </SelectContent>
           </Select>
         </div>
-        <div className="space-y-1">
-          <Label className="text-xs">Date</Label>
+        <div className="space-y-2">
+          <Label>Date</Label>
           <Input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} />
         </div>
       </div>
@@ -697,7 +764,7 @@ function HistoryTab({ users }: { users: UserItem[] }) {
                     { key: 'end', label: 'Heure fin' },
                     { key: 'duration', label: 'Durée' },
                     { key: 'alert', label: 'Alerte' },
-                    { key: 'note', label: 'Note' },
+                    { key: 'note' , label: 'Note' },
                   ].map(col => (
                     <th
                       key={col.key}
@@ -732,7 +799,7 @@ function HistoryTab({ users }: { users: UserItem[] }) {
                           <span className="text-xs text-red-600 flex items-center gap-1">
                             <AlertTriangle className="w-3 h-3" />{alert}
                           </span>
-                        ) : <span className="text-xs text-emerald-600">✓</span>}
+                        ) :  <span className="text-xs text-emerald-600">✓</span>}
                       </td>
                       <td className="px-4 py-3 text-muted-foreground text-xs italic">{r.note || '—'}</td>
                     </tr>
@@ -742,7 +809,6 @@ function HistoryTab({ users }: { users: UserItem[] }) {
             </table>
           </div>
 
-          {/* Gauge Chart */}
           {totalDuration > 0 && (
             <Card className="border-2 border-indigo-200">
               <CardHeader>
@@ -752,12 +818,6 @@ function HistoryTab({ users }: { users: UserItem[] }) {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                {/* <GaugeChart 
-                  shiftPercent={shiftPercent}
-                  pausePercent={pausePercent}
-                  lunchPercent={lunchPercent}
-                  otherPercent={otherPercent}
-                /> */}
                 <div className="text-center text-muted-foreground py-4">Graphique en développement</div>
               </CardContent>
             </Card>
@@ -768,8 +828,7 @@ function HistoryTab({ users }: { users: UserItem[] }) {
   )
 }
 
-// ── Reports Tab ───────────────────────────────────────────────────────────────
-
+// ── Reports Tab Component ────────────────────────────────────────────────────
 interface ReportRow {
   userName: string; date: string
   totalShift: number; totalPause: number; totalLunch: number; totalOther: number
@@ -808,12 +867,14 @@ function ReportsTab({ users }: { users: UserItem[] }) {
       if (!map.has(key)) map.set(key, [])
       map.get(key)!.push(r)
     }
+
     const rows: ReportRow[] = []
     map.forEach((recs, key) => {
       const [userId, date] = key.split('__')
       const userName = users.find(u => u.id === userId)?.name || userId
       const breakdown: Record<string, number> = {}
       let totalShift = 0, totalPause = 0, totalLunch = 0, totalOther = 0
+
       for (const r of recs) {
         const dur = r.durationMin || 0
         breakdown[r.status] = (breakdown[r.status] || 0) + dur
@@ -822,12 +883,15 @@ function ReportsTab({ users }: { users: UserItem[] }) {
         else if (r.status === 'LUNCH') totalLunch += dur
         else totalOther += dur
       }
+
       const alerts: string[] = []
       if (totalShift > 0 && totalShift < 450) alerts.push(`Shift court (${fmtDur(totalShift)})`)
       if (totalPause > 30) alerts.push(`Pause dépassée (${fmtDur(totalPause)})`)
       if (totalLunch > 60) alerts.push(`Lunch dépassé (${fmtDur(totalLunch)})`)
+
       rows.push({ userName, date, totalShift, totalPause, totalLunch, totalOther, breakdown, alerts })
     })
+
     return rows.sort((a, b) => a.date.localeCompare(b.date) || a.userName.localeCompare(b.userName))
   }
 
@@ -866,11 +930,11 @@ function ReportsTab({ users }: { users: UserItem[] }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-3 items-end">
-        <div className="space-y-1">
-          <Label className="text-xs">Période</Label>
+      <div className="flex items-center gap-4 flex-wrap">
+        <div className="space-y-2">
+          <Label>Période</Label>
           <Select value={period} onValueChange={(v: any) => setPeriod(v)}>
-            <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+            <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="today">Aujourd'hui</SelectItem>
               <SelectItem value="week">Cette semaine</SelectItem>
@@ -879,18 +943,30 @@ function ReportsTab({ users }: { users: UserItem[] }) {
             </SelectContent>
           </Select>
         </div>
+
         {period === 'custom' && (
           <>
-            <div className="space-y-1"><Label className="text-xs">Du</Label><Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="w-40" /></div>
-            <div className="space-y-1"><Label className="text-xs">Au</Label><Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="w-40" /></div>
-            <Button onClick={fetchReport} className="bg-indigo-600 text-white hover:bg-indigo-700">Chercher</Button>
+            <div className="space-y-2">
+              <Label>Du</Label>
+              <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="w-40" />
+            </div>
+            <div className="space-y-2">
+              <Label>Au</Label>
+              <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="w-40" />
+            </div>
+            <Button onClick={fetchReport} className="bg-indigo-600 text-white hover:bg-indigo-700 mt-6">Chercher</Button>
           </>
         )}
+
         {rows.length > 0 && (
-          <div className="flex gap-2 ml-auto">
-            <Button size="sm" variant="outline" className="gap-1" onClick={copyTable}><FileText className="w-3 h-3" />Copier</Button>
-            <Button size="sm" variant="outline" className="gap-1" onClick={exportCSV}><Download className="w-3 h-3" />CSV</Button>
-          </div>
+          <>
+            <Button size="sm" variant="outline" className="gap-1 mt-6" onClick={copyTable}>
+              <FileText className="w-4 h-4" /> Copier
+            </Button>
+            <Button size="sm" variant="outline" className="gap-1 mt-6" onClick={exportCSV}>
+              <Download className="w-4 h-4" /> CSV
+            </Button>
+          </>
         )}
       </div>
 
@@ -945,50 +1021,6 @@ function ReportsTab({ users }: { users: UserItem[] }) {
             </tbody>
           </table>
         </div>
-      )}
-    </div>
-  )
-}
-
-// ── Main ─────────────────────────────────────────────────────────────────────
-
-interface AdminAttendanceViewProps {
-  showOnlyRealtime?: boolean
-  filterMemberIds?: string[]  // ✅ NOUVELLE PROP
-}
-
-export default function AdminAttendanceView({ 
-  showOnlyRealtime = false,
-  filterMemberIds  // ✅ DÉSTRUCTURER LA PROP
-}: AdminAttendanceViewProps) {
-  const [users, setUsers] = useState<UserItem[]>([])
-
-  useEffect(() => {
-    fetch('/api/users').then(r => r.json()).then(data => {
-      setUsers(data.map((u: any) => ({ id: u.id, name: u.name, email: u.email, jobRole: u.jobRole || null })))
-    })
-  }, [])
-
-  return (
-    <div className="space-y-4">
-      {!showOnlyRealtime && (
-        <h2 className="text-xl font-bold flex items-center gap-2">
-          <Clock className="h-5 w-5 text-indigo-500" />Gestion des présences
-        </h2>
-      )}
-      {showOnlyRealtime ? (
-        <RealtimeTab users={users} filterMemberIds={filterMemberIds} />  // ✅ PASSER LA PROP
-      ) : (
-        <Tabs defaultValue="history">
-          <TabsList className="bg-gradient-to-r from-indigo-100 to-purple-100">
-            <TabsTrigger value="history" className="data-[state=active]:bg-white">Historique</TabsTrigger>
-            <TabsTrigger value="manage" className="data-[state=active]:bg-white">Gestion</TabsTrigger>
-            <TabsTrigger value="reports" className="data-[state=active]:bg-white">Rapports</TabsTrigger>
-          </TabsList>
-          <TabsContent value="history" className="mt-4"><HistoryTab users={users} /></TabsContent>
-          <TabsContent value="manage" className="mt-4"><ManagementTab users={users} /></TabsContent>
-          <TabsContent value="reports" className="mt-4"><ReportsTab users={users} /></TabsContent>
-        </Tabs>
       )}
     </div>
   )
