@@ -133,10 +133,10 @@ function calculatePerformance(record: any, planning: any) {
     }
   }
   
-  const plannedStartTime = new Date(`${recordDate}T${plannedStart}`)
-  const plannedEndTime = new Date(`${recordDate}T${plannedEnd}`)
-  const actualStartTime = new Date(record.startedAt)
-  const actualEndTime = record.endedAt ? new Date(record.endedAt) : null
+  const plannedStartTime = new Date(`${recordDate}T${plannedStart}Z`)
+  const plannedEndTime = new Date(`${recordDate}T${plannedEnd}Z`)
+  const actualStartTime = new Date(record.startedAt + 'Z')
+  const actualEndTime = record.endedAt ? new Date(record.endedAt + 'Z') : null
 
   let lateMinutes = 0
   let isLate = false
@@ -204,100 +204,108 @@ export async function POST(request: Request) {
 
     // ✅ FONCTION: Fermer tout record ouvert
     async function closeOpenRecord(userId: string, closeTime: Date, isDeparture: boolean = false) {
-      const today = formatDateLocal(closeTime)
+  const today = formatDateLocal(closeTime)
+  
+  const { data: openRecords, error: fetchError } = await supabaseAdmin
+    .from('Attendance')
+    .select('id, startedAt, status')
+    .eq('userId', userId)
+    .is('endedAt', null)
+    .gte('startedAt', `${today}T00:00:00`)
+    .lte('startedAt', `${today}T23:59:59`)
+
+  if (fetchError) return
+
+  if (openRecords && openRecords.length > 0) {
+    console.log('🔒 Closing', openRecords.length, 'open record(s)')
+    
+    // ✅ Récupérer le planning pour ce jour
+    const { data: planning } = await supabaseAdmin
+      .from('Planning')
+      .select('*')
+      .eq('userid', userId)
+      .lte('weekstart', today)
+      .gte('weekend', today)
+      .single()
+    
+    for (const record of openRecords) {
+      // ✅ CORRECTION: Ajouter 'Z' si absent
+      const startedAtStr = record.startedAt.endsWith('Z') 
+        ? record.startedAt 
+        : record.startedAt + 'Z'
       
-      const { data: openRecords, error: fetchError } = await supabaseAdmin
-        .from('Attendance')
-        .select('id, startedAt, status')
-        .eq('userId', userId)
-        .is('endedAt', null)
-        .gte('startedAt', `${today}T00:00:00`)
-        .lte('startedAt', `${today}T23:59:59`)
-
-      if (fetchError) return
-
-      if (openRecords && openRecords.length > 0) {
-        console.log('🔒 Closing', openRecords.length, 'open record(s)')
+      const started = new Date(startedAtStr)
+      const durationMin = Math.max(0, Math.round((closeTime.getTime() - started.getTime()) / 60000))
+      
+      // ✅ Initialiser les variables
+      let isEarlyDeparture = false
+      let earlyMinutes = 0
+      let isLate = false
+      let lateMinutes = 0
+      
+      // ✅ Calculer isLate pour TOUS les statuts (pas juste EN_PRODUCTION)
+      if (planning) {
+        const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+        const todayDate = new Date(today + 'T00:00:00Z')
+        const weekStart = new Date(planning.weekstart + 'T00:00:00Z')
+        const dayIndex = Math.floor((todayDate.getTime() - weekStart.getTime()) / (1000 * 60 * 60 * 24))
         
-        for (const record of openRecords) {
-          // ✅ CORRECTION CRITIQUE: Ajouter 'Z' si absent
-          const startedAtStr = record.startedAt.endsWith('Z') 
-            ? record.startedAt 
-            : record.startedAt + 'Z'
-          
-          const started = new Date(startedAtStr)
-          const durationMin = Math.max(0, Math.round((closeTime.getTime() - started.getTime()) / 60000))
-          
-          console.log('  - Closing record:', {
-            id: record.id,
-            status: record.status,
-            startedAt: record.startedAt,
-            startedAtCorrected: startedAtStr,
-            closeTime: closeTime.toISOString(),
-            diffMs: closeTime.getTime() - started.getTime(),
-            durationMin
-          })
-          
-          let isEarlyDeparture = false
-          let earlyMinutes = 0
-          let isLate = false
-          let lateMinutes = 0
-          
-          if (isDeparture && record.status === 'EN_PRODUCTION') {
-            const { data: planning } = await supabaseAdmin
-              .from('Planning')
-              .select('*')
-              .eq('userid', userId)
-              .lte('weekstart', today)
-              .gte('weekend', today)
-              .single()
+        if (dayIndex >= 0 && dayIndex < 7) {
+          const dayName = days[dayIndex]
+          if (planning[dayName]?.shift) {
+            const [plannedStart, plannedEnd] = planning[dayName].shift.split('-')
             
-            if (planning) {
-              const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
-              const todayDate = new Date(today + 'T00:00:00Z')
-              const weekStart = new Date(planning.weekstart + 'T00:00:00Z')
-              const dayIndex = Math.floor((todayDate.getTime() - weekStart.getTime()) / (1000 * 60 * 60 * 24))
-              
-              if (dayIndex >= 0 && dayIndex < 7) {
-                const dayName = days[dayIndex]
-                if (planning[dayName]?.shift) {
-                  const [plannedStart, plannedEnd] = planning[dayName].shift.split('-')
-                  
-                  const plannedStartTime = new Date(`${today}T${plannedStart}Z`)
-                  const plannedEndTime = new Date(`${today}T${plannedEnd}Z`)
-                  const actualStart = new Date(startedAtStr)
-                  
-                  if (actualStart > plannedStartTime) {
-                    lateMinutes = Math.round((actualStart.getTime() - plannedStartTime.getTime()) / 60000)
-                    if (lateMinutes > 5) isLate = true
-                  }
-                  
-                  if (closeTime < plannedEndTime) {
-                    isEarlyDeparture = true
-                    earlyMinutes = Math.round((plannedEndTime.getTime() - closeTime.getTime()) / 60000)
-                  }
-                }
+            const plannedStartTime = new Date(`${today}T${plannedStart}Z`)
+            const plannedEndTime = new Date(`${today}T${plannedEnd}Z`)
+            const actualStart = new Date(startedAtStr)
+            
+            // ✅ Vérifier le retard pour TOUS les statuts
+            if (actualStart > plannedStartTime) {
+              lateMinutes = Math.round((actualStart.getTime() - plannedStartTime.getTime()) / 60000)
+              if (lateMinutes > 5) {  // Tolérance de 5 min
+                isLate = true
               }
             }
+            
+            // ✅ Vérifier départ anticipé (seulement si c'est le dernier record et isDeparture=true)
+            if (isDeparture && closeTime < plannedEndTime) {
+              isEarlyDeparture = true
+              earlyMinutes = Math.round((plannedEndTime.getTime() - closeTime.getTime()) / 60000)
+            }
           }
-          
-          await supabaseAdmin
-            .from('Attendance')
-            .update({
-              endedAt: closeTime.toISOString(),
-              durationMin: durationMin,
-              ...(isDeparture && record.status === 'EN_PRODUCTION' && {
-                isLate,
-                lateMinutes: isLate ? lateMinutes : null,
-                isEarlyDeparture,
-                earlyMinutes: earlyMinutes > 0 ? earlyMinutes : null,
-              }),
-              updatedAt: closeTime.toISOString(),
-            })
-            .eq('id', record.id)
         }
       }
+      
+      console.log('  - Closing record:', {
+        id: record.id,
+        status: record.status,
+        startedAt: record.startedAt,
+        startedAtCorrected: startedAtStr,
+        closeTime: closeTime.toISOString(),
+        diffMs: closeTime.getTime() - started.getTime(),
+        durationMin,
+        isLate,
+        lateMinutes,
+        isEarlyDeparture,
+        earlyMinutes
+      })
+      
+      await supabaseAdmin
+        .from('Attendance')
+        .update({
+          endedAt: closeTime.toISOString(),
+          durationMin: durationMin,
+          // ✅ Sauvegarder isLate et isEarlyDeparture pour TOUS les records
+          isLate,
+          lateMinutes: isLate ? lateMinutes : null,
+          isEarlyDeparture,
+          earlyMinutes: isEarlyDeparture ? earlyMinutes : null,
+          updatedAt: closeTime.toISOString(),
+        })
+        .eq('id', record.id)
     }
+  }
+}
 
     if (body.fullDay && body.forceStatus) {
       const date = body.startedAt || formatDateLocal(now)
