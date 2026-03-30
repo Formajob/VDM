@@ -123,58 +123,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Features */}
-      <section className="container mx-auto px-4 py-12">
-        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-6xl mx-auto">
-          <Card className="border-2 border-indigo-100 hover:border-indigo-300 dark:border-indigo-900 transition-all hover:shadow-lg hover:shadow-indigo-500/10">
-            <CardHeader>
-              <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center mb-4">
-                <FileText className="h-6 w-6 text-white" />
-              </div>
-              <CardTitle className="text-lg">Gestion de Projets</CardTitle>
-              <CardDescription>
-                Suivez vos projets assignés par département — rédaction, narration, mixage, livraison — et ne manquez jamais une échéance.
-              </CardDescription>
-            </CardHeader>
-          </Card>
-
-          <Card className="border-2 border-purple-100 hover:border-purple-300 dark:border-purple-900 transition-all hover:shadow-lg hover:shadow-purple-500/10">
-            <CardHeader>
-              <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-purple-500 to-purple-600 flex items-center justify-center mb-4">
-                <Users className="h-6 w-6 text-white" />
-              </div>
-              <CardTitle className="text-lg">Collaboration d'Équipe</CardTitle>
-              <CardDescription>
-                Travaillez en coordination avec votre équipe, partagez les mises à jour et restez alignés sur les priorités du moment.
-              </CardDescription>
-            </CardHeader>
-          </Card>
-
-          <Card className="border-2 border-pink-100 hover:border-pink-300 dark:border-pink-900 transition-all hover:shadow-lg hover:shadow-pink-500/10">
-            <CardHeader>
-              <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-pink-500 to-pink-600 flex items-center justify-center mb-4">
-                <Calendar className="h-6 w-6 text-white" />
-              </div>
-              <CardTitle className="text-lg">Base de Données Personnages</CardTitle>
-              <CardDescription>
-                Accès rapide aux fiches personnages avec photos, voix et détails de casting pour chaque série et saison.
-              </CardDescription>
-            </CardHeader>
-          </Card>
-
-          <Card className="border-2 border-emerald-100 hover:border-emerald-300 dark:border-emerald-900 transition-all hover:shadow-lg hover:shadow-emerald-500/10">
-            <CardHeader>
-              <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center mb-4">
-                <Clock className="h-6 w-6 text-white" />
-              </div>
-              <CardTitle className="text-lg">Pointage & Présences</CardTitle>
-              <CardDescription>
-                Pointage en temps réel, gestion des pauses, congés et absences, rapports d'équipe exportables et suivi des écarts.
-              </CardDescription>
-            </CardHeader>
-          </Card>
-        </div>
-      </section>
+     
 
 {/* Top Performers */}
 <section className="container mx-auto px-4 py-12">
@@ -317,6 +266,8 @@ export default function HomePage() {
 </section>
 
 
+
+
       {/* Announcements */}
       <section className="container mx-auto px-4 py-12">
         <div className="max-w-4xl mx-auto">
@@ -334,6 +285,60 @@ export default function HomePage() {
         </div>
       </section>
 
+
+ {/* Features */}
+      <section className="container mx-auto px-4 py-12">
+        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-6xl mx-auto">
+          <Card className="border-2 border-indigo-100 hover:border-indigo-300 dark:border-indigo-900 transition-all hover:shadow-lg hover:shadow-indigo-500/10">
+            <CardHeader>
+              <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center mb-4">
+                <FileText className="h-6 w-6 text-white" />
+              </div>
+              <CardTitle className="text-lg">Gestion de Projets</CardTitle>
+              <CardDescription>
+                Suivez vos projets assignés par département — rédaction, narration, mixage, livraison — et ne manquez jamais une échéance.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+
+          <Card className="border-2 border-purple-100 hover:border-purple-300 dark:border-purple-900 transition-all hover:shadow-lg hover:shadow-purple-500/10">
+            <CardHeader>
+              <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-purple-500 to-purple-600 flex items-center justify-center mb-4">
+                <Users className="h-6 w-6 text-white" />
+              </div>
+              <CardTitle className="text-lg">Collaboration d'Équipe</CardTitle>
+              <CardDescription>
+                Travaillez en coordination avec votre équipe, partagez les mises à jour et restez alignés sur les priorités du moment.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+
+          <Card className="border-2 border-pink-100 hover:border-pink-300 dark:border-pink-900 transition-all hover:shadow-lg hover:shadow-pink-500/10">
+            <CardHeader>
+              <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-pink-500 to-pink-600 flex items-center justify-center mb-4">
+                <Calendar className="h-6 w-6 text-white" />
+              </div>
+              <CardTitle className="text-lg">Base de Données Personnages</CardTitle>
+              <CardDescription>
+                Accès rapide aux fiches personnages avec photos, voix et détails de casting pour chaque série et saison.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+
+          <Card className="border-2 border-emerald-100 hover:border-emerald-300 dark:border-emerald-900 transition-all hover:shadow-lg hover:shadow-emerald-500/10">
+            <CardHeader>
+              <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center mb-4">
+                <Clock className="h-6 w-6 text-white" />
+              </div>
+              <CardTitle className="text-lg">Pointage & Présences</CardTitle>
+              <CardDescription>
+                Pointage en temps réel, gestion des pauses, congés et absences, rapports d'équipe exportables et suivi des écarts.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        </div>
+      </section>
+      
       {/* Footer */}
       <footer className="border-t mt-16 bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm">
         <div className="container mx-auto px-4 py-10">
