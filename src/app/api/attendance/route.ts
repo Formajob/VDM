@@ -5,6 +5,7 @@ import { authOptions } from '@/lib/auth'
 
 const TOLERANCE_MINUTES = 5
 
+// ✅ FONCTION: Formatage de date sans timezone (YYYY-MM-DD en local)
 function formatDateLocal(date: Date): string {
   return [
     date.getFullYear(),
@@ -21,6 +22,7 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url)
     const userId = searchParams.get('userId')
 
+    // 1️⃣ Fetch attendance
     let attendanceQuery = supabaseAdmin
       .from('Attendance')
       .select('*, user:User!Attendance_userId_fkey (id, name, email, "jobRole")')
@@ -34,6 +36,7 @@ export async function GET(request: Request) {
     if (attendanceError) throw attendanceError
     if (!attendanceData || attendanceData.length === 0) return NextResponse.json([])
 
+    // 2️⃣ Fetch ALL plannings
     const userIds = [...new Set(attendanceData.map((a: any) => a.userId))]
     
     let planningQuery = supabaseAdmin.from('Planning').select('*')
@@ -46,6 +49,7 @@ export async function GET(request: Request) {
     const { data: allPlanning, error: planningError } = await planningQuery
     if (planningError) console.error('Planning error:', planningError)
     
+    // 3️⃣ Filtrer par date range en JS
     const dates = attendanceData.map((a: any) => a.startedAt.split('T')[0])
     const minDate = dates.sort()[0]
     const maxDate = [...dates].reverse()[0]
@@ -54,6 +58,7 @@ export async function GET(request: Request) {
       return p.weekstart <= maxDate && p.weekend >= minDate
     })
 
+    // 4️⃣ Build planning map
     const planningMap = new Map<string, any>()
     const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
     
@@ -70,16 +75,21 @@ export async function GET(request: Request) {
         const dayData = p[day]
         if (dayData?.shift) {
           planningMap.set(key, { shift: dayData.shift })
+          console.log('✅ Mapped:', key, '=>', dayData.shift)
         }
       })
     })
 
+    console.log('🗺️ Total mapped days:', planningMap.size)
+
+    // 5️⃣ Enrich records
     const enrichedData = attendanceData.map((record: any) => {
       const recordDate = formatDateLocal(new Date(record.startedAt))
       const planningKey = `${record.userId}_${recordDate}`
       const planning = planningMap.get(planningKey)
       
       const metrics = calculatePerformance(record, planning)
+
       return { ...record, ...metrics }
     })
 
@@ -124,10 +134,10 @@ function calculatePerformance(record: any, planning: any) {
     }
   }
   
-  const plannedStartTime = new Date(`${recordDate}T${plannedStart}Z`)
-  const plannedEndTime = new Date(`${recordDate}T${plannedEnd}Z`)
-  const actualStartTime = new Date(record.startedAt + 'Z')
-  const actualEndTime = record.endedAt ? new Date(record.endedAt + 'Z') : null
+  const plannedStartTime = new Date(`${recordDate}T${plannedStart}`)
+  const plannedEndTime = new Date(`${recordDate}T${plannedEnd}`)
+  const actualStartTime = new Date(record.startedAt)
+  const actualEndTime = record.endedAt ? new Date(record.endedAt) : null
 
   let lateMinutes = 0
   let isLate = false
@@ -167,9 +177,94 @@ export async function POST(request: Request) {
     const body = await request.json()
     const now = new Date()
 
-    console.log('🔹 POST /api/attendance:', body)
+    console.log('🔹 POST /api/attendance:', {
+      id: body.id,
+      userId: body.userId,
+      targetUserId: body.targetUserId,
+      status: body.status,
+      forceStatus: body.forceStatus,
+      fullDay: body.fullDay,
+    })
 
-    // ✅ CAS 1: Clock-out (DOIT ÊTRE EN PREMIER)
+    // ✅ DÉTERMINER L'UTILISATEUR CIBLE
+    const targetUserId = body.targetUserId || body.userId
+    if (!targetUserId) {
+      return NextResponse.json({ error: 'userId or targetUserId required' }, { status: 400 })
+    }
+
+    // ✅ FONCTION HELPER: Fermer tout record ouvert pour un utilisateur aujourd'hui
+    async function closeOpenRecord(userId: string, closeTime: Date, isDeparture: boolean = false) {
+      const today = formatDateLocal(closeTime)
+      
+      const { data: openRecords, error: fetchError } = await supabaseAdmin
+        .from('Attendance')
+        .select('id, startedAt, status')
+        .eq('userId', userId)
+        .is('endedAt', null)
+        .gte('startedAt', `${today}T00:00:00`)
+        .lte('startedAt', `${today}T23:59:59`)
+
+      if (fetchError) {
+        console.error('Error fetching open records:', fetchError)
+        return
+      }
+
+      if (openRecords && openRecords.length > 0) {
+        for (const record of openRecords) {
+          const started = new Date(record.startedAt)
+          const durationMin = Math.round((closeTime.getTime() - started.getTime()) / 60000)
+          
+          // ✅ Récupérer le planning pour vérifier départ anticipé
+          let isEarlyDeparture = false
+          let earlyMinutes = 0
+          
+          if (isDeparture && record.status === 'EN_PRODUCTION') {
+            // Fetch planning pour ce jour
+            const { data: planning } = await supabaseAdmin
+              .from('Planning')
+              .select('*')
+              .eq('userid', userId)
+              .lte('weekstart', today)
+              .gte('weekend', today)
+              .single()
+            
+            if (planning) {
+              const dayName = Object.keys(planning).find(key => 
+                ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'].includes(key)
+              )
+              
+              if (dayName && planning[dayName]?.shift) {
+                const [, plannedEnd] = planning[dayName].shift.split('-')
+                const [endHour, endMin] = plannedEnd.split(':').map(Number)
+                const plannedEndTime = new Date(`${today}T${plannedEnd}`)
+                
+                if (closeTime < plannedEndTime) {
+                  isEarlyDeparture = true
+                  earlyMinutes = Math.round((plannedEndTime.getTime() - closeTime.getTime()) / 60000)
+                }
+              }
+            }
+          }
+          
+          await supabaseAdmin
+            .from('Attendance')
+            .update({
+              endedAt: closeTime.toISOString(),
+              durationMin: durationMin,
+              // ✅ Sauvegarder les infos de départ anticipé
+              ...(isDeparture && record.status === 'EN_PRODUCTION' && {
+                isEarlyDeparture,
+                earlyMinutes: earlyMinutes > 0 ? earlyMinutes : null,
+              }),
+              updatedAt: closeTime.toISOString(),
+            })
+            .eq('id', record.id)
+        }
+        console.log('✅ Closed', openRecords.length, 'open record(s) for', userId)
+      }
+    }
+
+    // ✅ CAS 1: Clock-out (mise à jour d'un pointage existant)
     if (body.id && body.endedAt && !body.forceStatus) {
       console.log('⏰ Clock-out for:', body.id)
       
@@ -184,96 +279,20 @@ export async function POST(request: Request) {
         .select()
         .single()
 
-      if (error) throw error
+      if (error) {
+        console.error('❌ Clock-out error:', error)
+        throw error
+      }
       return NextResponse.json(data, { status: 200 })
     }
 
-    const targetUserId = body.targetUserId || body.userId
-    if (!targetUserId) {
-      return NextResponse.json({ error: 'userId or targetUserId required' }, { status: 400 })
-    }
-
-    async function closeOpenRecord(userId: string, closeTime: Date, isDeparture: boolean = false) {
-      const today = formatDateLocal(closeTime)
-      
-      const { data: openRecords, error: fetchError } = await supabaseAdmin
-        .from('Attendance')
-        .select('id, startedAt, status')
-        .eq('userId', userId)
-        .is('endedAt', null)
-        .gte('startedAt', `${today}T00:00:00`)
-        .lte('startedAt', `${today}T23:59:59`)
-
-      if (fetchError) return
-
-      if (openRecords && openRecords.length > 0) {
-        for (const record of openRecords) {
-          const started = new Date(record.startedAt + 'Z')
-          const durationMin = Math.round((closeTime.getTime() - started.getTime()) / 60000)
-          
-          let isEarlyDeparture = false
-          let earlyMinutes = 0
-          let isLate = false
-          let lateMinutes = 0
-          
-          if (isDeparture && record.status === 'EN_PRODUCTION') {
-            const { data: planning } = await supabaseAdmin
-              .from('Planning')
-              .select('*')
-              .eq('userid', userId)
-              .lte('weekstart', today)
-              .gte('weekend', today)
-              .single()
-            
-            if (planning) {
-              const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
-              const todayDate = new Date(today + 'T00:00:00Z')
-              const weekStart = new Date(planning.weekstart + 'T00:00:00Z')
-              const dayIndex = Math.floor((todayDate.getTime() - weekStart.getTime()) / (1000 * 60 * 60 * 24))
-              
-              if (dayIndex >= 0 && dayIndex < 7) {
-                const dayName = days[dayIndex]
-                if (planning[dayName]?.shift) {
-                  const [plannedStart, plannedEnd] = planning[dayName].shift.split('-')
-                  const plannedStartTime = new Date(`${today}T${plannedStart}Z`)
-                  const plannedEndTime = new Date(`${today}T${plannedEnd}Z`)
-                  const actualStart = new Date(record.startedAt + 'Z')
-                  
-                  if (actualStart > plannedStartTime) {
-                    lateMinutes = Math.round((actualStart.getTime() - plannedStartTime.getTime()) / 60000)
-                    if (lateMinutes > 5) isLate = true
-                  }
-                  
-                  if (closeTime < plannedEndTime) {
-                    isEarlyDeparture = true
-                    earlyMinutes = Math.round((plannedEndTime.getTime() - closeTime.getTime()) / 60000)
-                  }
-                }
-              }
-            }
-          }
-          
-          await supabaseAdmin
-            .from('Attendance')
-            .update({
-              endedAt: closeTime.toISOString(),
-              durationMin: durationMin,
-              ...(isDeparture && record.status === 'EN_PRODUCTION' && {
-                isLate,
-                lateMinutes: isLate ? lateMinutes : null,
-                isEarlyDeparture,
-                earlyMinutes: earlyMinutes > 0 ? earlyMinutes : null,
-              }),
-              updatedAt: closeTime.toISOString(),
-            })
-            .eq('id', record.id)
-        }
-      }
-    }
-
+    // ✅ CAS 2: Full day status (ABSENT, CONGE) - admin force
     if (body.fullDay && body.forceStatus) {
+      console.log('📅 Full day status for:', targetUserId, 'on', body.startedAt)
+      
       const date = body.startedAt || todayStr()
       
+      // Supprimer les entrées existantes pour ce jour
       await supabaseAdmin
         .from('Attendance')
         .delete()
@@ -281,6 +300,7 @@ export async function POST(request: Request) {
         .gte('startedAt', `${date}T00:00:00`)
         .lte('startedAt', `${date}T23:59:59`)
       
+      // Créer l'entrée full day
       const insertData: any = {
         id: body.id || `fullday_${targetUserId}_${date}`,
         userId: targetUserId,
@@ -306,7 +326,11 @@ export async function POST(request: Request) {
       return NextResponse.json(data, { status: 201 })
     }
 
+    // ✅ CAS 3: Admin force status change (non full-day)
     if (body.forceStatus) {
+      console.log('⚡ Force status for:', targetUserId, '=>', body.status)
+      
+      // ✅ Fermer l'ancien record ouvert avant de forcer un nouveau statut
       await closeOpenRecord(targetUserId, now, false)
       
       const insertData: any = {
@@ -334,11 +358,21 @@ export async function POST(request: Request) {
       return NextResponse.json(data, { status: 201 })
     }
 
+    // ✅ CAS 3.5: Départ (fermeture sans créer de nouveau record)
     if (body.status === 'DEPART' || body.action === 'depart') {
+      console.log('🚪 Departure for:', targetUserId)
+      
+      // ✅ Fermer le record actif avec calcul de départ anticipé
       await closeOpenRecord(targetUserId, now, true)
-      return NextResponse.json({ success: true, message: 'Departure recorded' }, { status: 200 })
+      
+      return NextResponse.json({ 
+        success: true, 
+        message: 'Departure recorded' 
+      }, { status: 200 })
     }
 
+    // ✅ CAS 4: Clock-in ou changement de statut normal (CORRIGÉ)
+    // ✅ Fermer l'ancien record ouvert AVANT d'insérer le nouveau
     await closeOpenRecord(targetUserId, now, false)
 
     const insertData: any = {
@@ -368,6 +402,7 @@ export async function POST(request: Request) {
   }
 }
 
+// Helper pour todayStr
 function todayStr(): string {
   return new Date().toISOString().split('T')[0]
 }
