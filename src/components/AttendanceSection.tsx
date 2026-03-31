@@ -38,7 +38,6 @@ const STATUS_CONFIG: Record<AttendanceStatus, StatusConfig> = {
 }
 
 const FULLDAY_STATUSES: AttendanceStatus[] = ['ABSENT', 'CONGE']
-
 const MEMBER_SELECTABLE_STATUSES: AttendanceStatus[] = [
   'EN_PRODUCTION', 'PAUSE', 'LUNCH', 'REUNION', 'RENCONTRE', 'FORMATION'
 ]
@@ -70,7 +69,8 @@ export default function AttendanceSection({ userId }: { userId: string }) {
 
   const fetchRecords = useCallback(async () => {
     try {
-      const res = await fetch(`/api/attendance?date=${today}`)
+      // ✅ CORRECTION CRITIQUE : Ajouter userId pour filtrer les records
+      const res = await fetch(`/api/attendance?date=${today}&userId=${userId}`)
       if (!res.ok) return
       const data: AttendanceRecord[] = await res.json()
       setRecords(data)
@@ -86,7 +86,7 @@ export default function AttendanceSection({ userId }: { userId: string }) {
     } catch (error) {
       console.error('Error fetching attendance:', error)
     }
-  }, [today])
+  }, [today, userId])  // ✅ Ajouter userId dans les dépendances
 
   // ✅ POLLING toutes les 5 secondes
   useEffect(() => {
@@ -97,6 +97,7 @@ export default function AttendanceSection({ userId }: { userId: string }) {
 
   useEffect(() => {
     if (!activeRecord) { setElapsed(0); return }
+    // ✅ AJOUTER 'Z' pour forcer UTC dans le calcul du timer
     const start = new Date(activeRecord.startedAt + 'Z')
     const update = () => {
       const diff = (Date.now() - start.getTime()) / 60000
@@ -120,7 +121,9 @@ export default function AttendanceSection({ userId }: { userId: string }) {
         }
         
         const now = new Date()
-        const durationMin = Math.round((now.getTime() - new Date(activeRecord.startedAt).getTime()) / 60000)
+        // ✅ AJOUTER 'Z' pour forcer UTC dans le calcul de durée
+        const started = new Date(activeRecord.startedAt + 'Z')
+        const durationMin = Math.max(0, Math.round((now.getTime() - started.getTime()) / 60000))
         
         // ✅ Mettre à jour le record actif (pas créer un nouveau)
         const res = await fetch('/api/attendance', {
@@ -193,7 +196,6 @@ export default function AttendanceSection({ userId }: { userId: string }) {
         </CardHeader>
         <CardContent className="space-y-4">
 
-          {/* AFFICHAGE DU STATUT ACTUEL */}
           {isFullDayLocked && fullDayRecord && fullDayCfg ? (
             <div className={`rounded-xl p-4 ${fullDayCfg.bgColor} border ${fullDayCfg.borderColor}`}>
               <div className="flex items-center gap-3">
