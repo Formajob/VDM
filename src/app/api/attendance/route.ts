@@ -20,24 +20,14 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url)
     const userId = searchParams.get('userId')
-    const startDate = searchParams.get('startDate')
-    const endDate = searchParams.get('endDate')
-    const date = searchParams.get('date')
-    const all = searchParams.get('all')
 
     let attendanceQuery = supabaseAdmin
       .from('Attendance')
       .select('*, user:User!Attendance_userId_fkey (id, name, email, "jobRole")')
       .order('startedAt', { ascending: false })
 
-    if (userId && userId !== 'all') {
+    if (userId) {
       attendanceQuery = attendanceQuery.eq('userId', userId)
-    }
-
-    if (date) {
-      attendanceQuery = attendanceQuery.gte('startedAt', `${date}T00:00:00`).lte('startedAt', `${date}T23:59:59`)
-    } else if (startDate && endDate) {
-      attendanceQuery = attendanceQuery.gte('startedAt', `${startDate}T00:00:00`).lte('startedAt', `${endDate}T23:59:59`)
     }
 
     const { data: attendanceData, error: attendanceError } = await attendanceQuery
@@ -179,40 +169,33 @@ export async function POST(request: Request) {
 
     console.log('🔹 POST /api/attendance:', body)
 
-    // ✅ CAS 1: Clock-out par ID (mise à jour d'un record EXISTANT) - DOIT ÊTRE EN PREMIER !
-   if (body.id && body.endedAt && !body.forceStatus) {
-  console.log('⏰ Clock-out for specific record:', body.id)
-  
-  const { data, error } = await supabaseAdmin
-    .from('Attendance')
-    .update({
-      endedAt: body.endedAt,
-      durationMin: body.durationMin,
-      updatedAt: now.toISOString(),
-    })
-    .eq('id', body.id)  // ← Ne met à jour QUE ce record
-    .select()
-    .single()
+    // ✅ CAS 1: Clock-out (DOIT ÊTRE EN PREMIER)
+    if (body.id && body.endedAt && !body.forceStatus) {
+      console.log('⏰ Clock-out for:', body.id)
+      
+      const { data, error } = await supabaseAdmin
+        .from('Attendance')
+        .update({
+          endedAt: body.endedAt,
+          durationMin: body.durationMin,
+          updatedAt: now.toISOString(),
+        })
+        .eq('id', body.id)
+        .select()
+        .single()
 
-  if (error) {
-    console.error('❌ Clock-out error:', error)
-    throw error
-  }
-  
-  console.log('✅ CAS 1 success:', { id: body.id, durationMin: body.durationMin })
-  return NextResponse.json(data, { status: 200 })  // ← RETURN IMMÉDIAT, ne pas continuer !
-}
+      if (error) throw error
+      return NextResponse.json(data, { status: 200 })
+    }
 
     const targetUserId = body.targetUserId || body.userId
     if (!targetUserId) {
       return NextResponse.json({ error: 'userId or targetUserId required' }, { status: 400 })
     }
 
-    // ✅ FONCTION: Fermer tout record ouvert pour cet utilisateur aujourd'hui
     async function closeOpenRecord(userId: string, closeTime: Date, isDeparture: boolean = false) {
       const today = formatDateLocal(closeTime)
       
-      // ✅ CORRECTION:  data: openRecords (déstructuration correcte)
       const { data: openRecords, error: fetchError } = await supabaseAdmin
         .from('Attendance')
         .select('id, startedAt, status')
@@ -221,30 +204,19 @@ export async function POST(request: Request) {
         .gte('startedAt', `${today}T00:00:00`)
         .lte('startedAt', `${today}T23:59:59`)
 
-      if (fetchError) {
-        console.error('Error fetching open records:', fetchError)
-        return
-      }
+      if (fetchError) return
 
       if (openRecords && openRecords.length > 0) {
-        console.log('🔒 Closing', openRecords.length, 'open record(s)')
-        
         for (const record of openRecords) {
-          // ✅ CORRECTION: Ajouter 'Z' si absent pour forcer UTC
-          const startedAtStr = record.startedAt.endsWith('Z') 
-            ? record.startedAt 
-            : record.startedAt + 'Z'
-          
-          const started = new Date(startedAtStr)
-          const durationMin = Math.max(0, Math.round((closeTime.getTime() - started.getTime()) / 60000))
+          const started = new Date(record.startedAt + 'Z')
+          const durationMin = Math.round((closeTime.getTime() - started.getTime()) / 60000)
           
           let isEarlyDeparture = false
           let earlyMinutes = 0
           let isLate = false
           let lateMinutes = 0
           
-          if (record.status === 'EN_PRODUCTION') {
-            // ✅ CORRECTION:  data: planning (déstructuration correcte)
+          if (isDeparture && record.status === 'EN_PRODUCTION') {
             const { data: planning } = await supabaseAdmin
               .from('Planning')
               .select('*')
@@ -263,17 +235,16 @@ export async function POST(request: Request) {
                 const dayName = days[dayIndex]
                 if (planning[dayName]?.shift) {
                   const [plannedStart, plannedEnd] = planning[dayName].shift.split('-')
-                  
                   const plannedStartTime = new Date(`${today}T${plannedStart}Z`)
                   const plannedEndTime = new Date(`${today}T${plannedEnd}Z`)
-                  const actualStart = new Date(startedAtStr)
+                  const actualStart = new Date(record.startedAt + 'Z')
                   
                   if (actualStart > plannedStartTime) {
                     lateMinutes = Math.round((actualStart.getTime() - plannedStartTime.getTime()) / 60000)
                     if (lateMinutes > 5) isLate = true
                   }
                   
-                  if (isDeparture && closeTime < plannedEndTime) {
+                  if (closeTime < plannedEndTime) {
                     isEarlyDeparture = true
                     earlyMinutes = Math.round((plannedEndTime.getTime() - closeTime.getTime()) / 60000)
                   }
@@ -282,24 +253,16 @@ export async function POST(request: Request) {
             }
           }
           
-          console.log('  - Closing record:', {
-            id: record.id,
-            status: record.status,
-            durationMin,
-            isLate,
-            isEarlyDeparture
-          })
-          
           await supabaseAdmin
             .from('Attendance')
             .update({
               endedAt: closeTime.toISOString(),
               durationMin: durationMin,
-              ...(record.status === 'EN_PRODUCTION' && {
+              ...(isDeparture && record.status === 'EN_PRODUCTION' && {
                 isLate,
                 lateMinutes: isLate ? lateMinutes : null,
                 isEarlyDeparture,
-                earlyMinutes: isEarlyDeparture ? earlyMinutes : null,
+                earlyMinutes: earlyMinutes > 0 ? earlyMinutes : null,
               }),
               updatedAt: closeTime.toISOString(),
             })
@@ -309,7 +272,7 @@ export async function POST(request: Request) {
     }
 
     if (body.fullDay && body.forceStatus) {
-      const date = body.startedAt || formatDateLocal(now)
+      const date = body.startedAt || todayStr()
       
       await supabaseAdmin
         .from('Attendance')
@@ -319,13 +282,16 @@ export async function POST(request: Request) {
         .lte('startedAt', `${date}T23:59:59`)
       
       const insertData: any = {
-        id: body.id || crypto.randomUUID(),
+        id: body.id || `fullday_${targetUserId}_${date}`,
         userId: targetUserId,
         status: body.status,
-        startedAt: `${date}T08:00:00Z`,
-        endedAt: `${date}T17:00:00Z`,
+        startedAt: `${date}T08:00:00`,
+        endedAt: `${date}T17:00:00`,
         durationMin: 540,
         note: body.note || `Statut forcé: ${body.status}`,
+        isAdjusted: true,
+        adjustedBy: (session.user as any)?.id,
+        adjustedAt: now.toISOString(),
         createdAt: now.toISOString(),
         updatedAt: now.toISOString(),
       }
@@ -351,6 +317,9 @@ export async function POST(request: Request) {
         endedAt: body.endedAt || null,
         durationMin: body.durationMin || null,
         note: body.note || null,
+        isAdjusted: true,
+        adjustedBy: (session.user as any)?.id,
+        adjustedAt: now.toISOString(),
         createdAt: now.toISOString(),
         updatedAt: now.toISOString(),
       }
@@ -442,6 +411,12 @@ export async function PUT(request: Request) {
         endedAt: body.endedAt,
         durationMin: body.durationMin,
         note: body.note,
+        isAdjusted: body.isAdjustment || false,
+        adjustedBy: body.isAdjustment ? (session.user as any).id : null,
+        adjustedAt: body.isAdjustment ? now.toISOString() : null,
+        adjustmentNote: body.adjustmentNote || null,
+        overrideIsLate: body.overrideIsLate,
+        overrideIsEarly: body.overrideIsEarly,
         updatedAt: now.toISOString(),
       })
       .eq('id', body.id)

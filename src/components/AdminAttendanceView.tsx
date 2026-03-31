@@ -117,7 +117,7 @@ function RealtimeTab({ users, filterMemberIds }: RealtimeTabProps) {
   const [changeStatus, setChangeStatus] = useState<StatusOrDepart>('EN_PRODUCTION')
   const [changing, setChanging] = useState(false)
 
- const fetchAll = useCallback(async () => {
+const fetchAll = useCallback(async () => {
   try {
     const res = await fetch(`/api/attendance?all=true&date=${todayStr()}`)
     if (!res.ok) {
@@ -160,34 +160,36 @@ function RealtimeTab({ users, filterMemberIds }: RealtimeTabProps) {
         }, 0)
 
       const alerts: string[] = []
+      
+      // ✅ VÉRIFIER LES RETARDS (isLate depuis l'API)
+      if (active && active.isLate && active.lateMinutes && active.lateMinutes < 999) {
+        alerts.push(`⚠️ Retard ${fmtDur(active.lateMinutes)}`)
+      }
+      
+      // ✅ VÉRIFIER LES DÉPASSEMENTS (pause > 30min, lunch > 60min, etc.)
+      if (active) {
+        const cfg = STATUS_CONFIG[active.status]
+        const elapsed = (now - new Date(active.startedAt + 'Z').getTime()) / 60000
+        if (cfg?.limitMin && elapsed > cfg.limitMin) {
+          alerts.push(`⏱️ Dépassement ${cfg.label} +${fmtDur(elapsed - cfg.limitMin)}`)
+        }
+      }
+      
+      // ✅ VÉRIFIER DÉPART ANTICIPÉ
+      if (departed && totalShiftMin > 0 && totalShiftMin < 450) {
+        alerts.push(`🕐 Départ anticipé (${fmtDur(totalShiftMin)} / 7h30)`)
+      }
+      
+      // ✅ VÉRIFIER earlyDeparture depuis l'API
+      if (active && active.isEarlyDeparture && active.earlyMinutes) {
+        alerts.push(`🕐 Départ anticipé ${fmtDur(active.earlyMinutes)}`)
+      }
 
-// ✅ VÉRIFIER LES RETARDS
-if (active && active.isLate && active.lateMinutes && active.lateMinutes < 999) {
-  alerts.push(`⚠️ Retard ${fmtDur(active.lateMinutes)}`)
-}
-
-// ✅ VÉRIFIER LES DÉPASSEMENTS
-if (active) {
-  const cfg = STATUS_CONFIG[active.status]
-  const elapsed = (now - new Date(active.startedAt + 'Z').getTime()) / 60000
-  if (cfg?.limitMin && elapsed > cfg.limitMin) {
-    alerts.push(`⏱️ Dépassement ${cfg.label} +${fmtDur(elapsed - cfg.limitMin)}`)
-  }
-}
-
-// ✅ VÉRIFIER DÉPART ANTICIPÉ
-if (departed && totalShiftMin > 0 && totalShiftMin < 450) {
-  alerts.push(`🕐 Départ anticipé (${fmtDur(totalShiftMin)} / 7h30)`)
-}
-
-// ✅ VÉRIFIER earlyDeparture
-if (active && active.isEarlyDeparture && active.earlyMinutes) {
-  alerts.push(`🕐 Départ anticipé ${fmtDur(active.earlyMinutes)}`)
-}
       return { user, activeRecord: active, totalShiftMin, departed, alerts }
     })
 
- 
+    setMembers(statuses) 
+    setLastUpdated(new Date())
   } catch (error) {
     console.error('Error in fetchAll:', error)
   }
