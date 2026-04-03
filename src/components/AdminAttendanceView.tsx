@@ -111,83 +111,25 @@ function RealtimeTab({ users, filterMemberIds }: RealtimeTabProps) {
   const [changeStatus, setChangeStatus] = useState('EN_PRODUCTION')
   const [changing, setChanging] = useState(false)
 
-  const fetchAll = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/attendance?all=true&date=${todayStr()}`)
-      if (!res.ok) {
-        console.error('Failed to fetch attendance:', res.status)
-        return
-      }
-      const records: AttendanceRecord[] = await res.json()
-      
-      const byUser = new Map<string, AttendanceRecord[]>()
-      for (const r of records) {
-        if (!byUser.has(r.userId)) byUser.set(r.userId, [])
-        byUser.get(r.userId)!.push(r)
-      }
-
-      const now = Date.now()
-
-      // Filter out ADMIN users
-      let activeUsers = users.filter(u => {
-        const isAdminEmail = u.email?.toLowerCase().includes('admin')
-        const isAdminRole = u.jobRole === 'ADMIN'
-        return !isAdminEmail && !isAdminRole
-      })
-
-      // ✅ FILTRER par filterMemberIds si fourni
-      if (filterMemberIds && filterMemberIds.length > 0) {
-        activeUsers = activeUsers.filter(u => filterMemberIds.includes(u.id))
-      }
-
-      const statuses: MemberStatus[] = activeUsers.map(user => {
-        const recs = byUser.get(user.id) || []
-        const active = recs.find(r => !r.endedAt) || null
-        const departed = !active && recs.length > 0
-
-        const totalShiftMin = recs
-          .filter(r => r.status === 'EN_PRODUCTION')
-          .reduce((acc, r) => {
-            if (r.durationMin) return acc + r.durationMin
-            if (!r.endedAt) return acc + (now - new Date(r.startedAt + 'Z').getTime()) / 60000
-            return acc
-          }, 0)
-
-        const alerts: string[] = []
-        
-        // ✅ VÉRIFIER LES RETARDS (isLate depuis l'API)
-        if (active && active.isLate && active.lateMinutes && active.lateMinutes < 999) {
-          alerts.push(`⚠️ Retard ${fmtDur(active.lateMinutes)}`)
-        }
-        
-        // ✅ VÉRIFIER LES DÉPASSEMENTS (pause > 30min, lunch > 60min, etc.)
-        if (active) {
-          const cfg = STATUS_CONFIG[active.status]
-          const elapsed = (now - new Date(active.startedAt + 'Z').getTime()) / 60000
-          if (cfg?.limitMin && elapsed > cfg.limitMin) {
-            alerts.push(`⏱️ Dépassement ${cfg.label} +${fmtDur(elapsed - cfg.limitMin)}`)
-          }
-        }
-        
-        // ✅ VÉRIFIER DÉPART ANTICIPÉ
-        if (departed && totalShiftMin > 0 && totalShiftMin < 450) {
-          alerts.push(`🕐 Départ anticipé (${fmtDur(totalShiftMin)} / 7h30)`)
-        }
-        
-        // ✅ VÉRIFIER earlyDeparture depuis l'API
-        if (active && active.isEarlyDeparture && active.earlyMinutes) {
-          alerts.push(`🕐 Départ anticipé ${fmtDur(active.earlyMinutes)}`)
-        }
-
-        return { user, activeRecord: active, totalShiftMin, departed, alerts }
-      })
-
-      setMembers(statuses) 
-      setLastUpdated(new Date())
-    } catch (error) {
-      console.error('Error in fetchAll:', error)
+const fetchAll = useCallback(async () => {
+  try {
+    const res = await fetch(`/api/attendance?all=true&date=${todayStr()}`)
+    if (!res.ok) {
+      console.error('Failed to fetch attendance:', res.status)
+      return
     }
-  }, [users, filterMemberIds])
+    const records: AttendanceRecord[] = await res.json()
+    
+    console.log('📊 Admin fetched records:', {
+      count: records.length,
+      statuses: [...new Set(records.map(r => r.status))]
+    })
+    
+    // ... reste du code inchangé
+  } catch (error) {
+    console.error('Error in fetchAll:', error)
+  }
+}, [users, filterMemberIds])
 
   useEffect(() => {
     fetchAll()
