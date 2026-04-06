@@ -26,5 +26,5 @@ git push origin main
  */}
 
  git add .
- git commit -m "fix: quitter le shift" 
+ git commit -m "fix: VUE ADMIN TEMPS REEL" 
  git push

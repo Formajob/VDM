@@ -15,8 +15,8 @@ import {
   LogOut, Plus, Pencil, Trash2, FileText,
 } from 'lucide-react'
 
-// ── Types ────────────────────────────────────────────────────────────────────
-type AttendanceStatus = 'EN_PRODUCTION' | 'PAUSE' | 'LUNCH' | 'REUNION' | 'RENCONTRE' | 'FORMATION' | 'ABSENT' | 'CONGE'
+// ── Types ─────────────────────────────────────────────────────────────────────
+type AttendanceStatus = 'EN_PRODUCTION' | 'PAUSE' | 'LUNCH' | 'REUNION' | 'RENCONTRE' | 'FORMATION' | 'ABSENT' | 'CONGE' | 'SHIFT'
 type StatusOrDepart = AttendanceStatus | 'DEPART'
 
 interface AttendanceRecord {
@@ -28,19 +28,28 @@ interface AttendanceRecord {
   durationMin: number | null
   note: string | null
   user: { id: string; name: string; email: string; jobRole: string | null }
-  // ✅ Champs pour les alertes (optionnels)
   isLate?: boolean
   lateMinutes?: number
   isEarlyDeparture?: boolean
   earlyMinutes?: number
   plannedShift?: { start: string; end: string }
+  parentShiftId?: string | null
 }
 
 interface UserItem {
   id: string; name: string; email: string; jobRole: string | null
 }
 
-// ── Config ───────────────────────────────────────────────────────────────────
+interface MemberStatus {
+  user: UserItem
+  activeRecord: AttendanceRecord | null
+  shift: AttendanceRecord | null
+  totalShiftMin: number
+  departed: boolean
+  alerts: string[]
+}
+
+// ── Config ────────────────────────────────────────────────────────────────────
 const STATUS_CONFIG: Record<string, { label: string; icon: React.ReactNode; color: string; bg: string; limitMin: number | null }> = {
   EN_PRODUCTION: { label: 'Shift',     icon: <Play className="w-3.5 h-3.5" />,            color: 'text-indigo-700', bg: 'bg-indigo-100', limitMin: 450 },
   PAUSE:         { label: 'Pause',     icon: <Coffee className="w-3.5 h-3.5" />,          color: 'text-amber-700',  bg: 'bg-amber-100',  limitMin: 30  },
@@ -51,13 +60,14 @@ const STATUS_CONFIG: Record<string, { label: string; icon: React.ReactNode; colo
   ABSENT:        { label: 'Absent',    icon: <UserX className="w-3.5 h-3.5" />,           color: 'text-red-700',    bg: 'bg-red-100',    limitMin: null },
   CONGE:         { label: 'Congé',     icon: <Palmtree className="w-3.5 h-3.5" />,        color: 'text-teal-700',   bg: 'bg-teal-100',   limitMin: null },
   DEPART:        { label: 'Départ',    icon: <LogOut className="w-3.5 h-3.5" />,          color: 'text-slate-600',  bg: 'bg-slate-100',  limitMin: null },
+  SHIFT:         { label: 'Shift',     icon: <Clock className="w-3.5 h-3.5" />,           color: 'text-indigo-700', bg: 'bg-indigo-50',  limitMin: null },
 }
 
-const MEMBER_STATUSES = Object.keys(STATUS_CONFIG).filter(s => s !== 'DEPART') as AttendanceStatus[]
-const ALL_STATUSES_WITH_DEPART = Object.keys(STATUS_CONFIG) as StatusOrDepart[]
+const MEMBER_STATUSES = ['EN_PRODUCTION', 'PAUSE', 'LUNCH', 'REUNION', 'RENCONTRE', 'FORMATION', 'ABSENT', 'CONGE'] as AttendanceStatus[]
+const ALL_STATUSES_WITH_DEPART = [...MEMBER_STATUSES, 'DEPART'] as StatusOrDepart[]
 const FULLDAY_STATUSES = ['ABSENT', 'CONGE']
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 function fmtDur(min: number): string {
   const h = Math.floor(min / 60), m = Math.floor(min % 60)
   return h > 0 ? `${h}h${m.toString().padStart(2, '0')}` : `${m}min`
@@ -89,15 +99,7 @@ function monthRange() {
   }
 }
 
-// ── Realtime Tab ─────────────────────────────────────────────────────────────
-interface MemberStatus {
-  user: UserItem
-  activeRecord: AttendanceRecord | null
-  totalShiftMin: number
-  departed: boolean
-  alerts: string[]
-}
-
+// ── Realtime Tab ──────────────────────────────────────────────────────────────
 interface RealtimeTabProps {
   users: UserItem[]
   filterMemberIds?: string[]
@@ -111,25 +113,76 @@ function RealtimeTab({ users, filterMemberIds }: RealtimeTabProps) {
   const [changeStatus, setChangeStatus] = useState('EN_PRODUCTION')
   const [changing, setChanging] = useState(false)
 
-const fetchAll = useCallback(async () => {
-  try {
-    const res = await fetch(`/api/attendance?all=true&date=${todayStr()}`)
-    if (!res.ok) {
-      console.error('Failed to fetch attendance:', res.status)
-      return
+  const fetchAll = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/attendance?all=true&date=${todayStr()}`)
+      if (!res.ok) {
+        console.error('Failed to fetch attendance:', res.status)
+        return
+      }
+      const records: AttendanceRecord[] = await res.json()
+
+      // Séparer SHIFT parents et records enfants
+      const shiftRecords = records.filter(r => r.status === 'SHIFT')
+      const childRecords = records.filter(r => r.status !== 'SHIFT')
+
+      const now = Date.now()
+
+      // Grouper les enfants par userId
+      const byUser = new Map<string, AttendanceRecord[]>()
+      for (const r of childRecords) {
+        if (!byUser.has(r.userId)) byUser.set(r.userId, [])
+        byUser.get(r.userId)!.push(r)
+      }
+
+      // Filtrer les membres si nécessaire
+      const filteredUsers = filterMemberIds && filterMemberIds.length > 0
+        ? users.filter(u => filterMemberIds.includes(u.id))
+        : users
+
+      const statuses: MemberStatus[] = filteredUsers.map(user => {
+        const recs = byUser.get(user.id) || []
+        const shift = shiftRecords.find(r => r.userId === user.id && !r.endedAt) || null
+        const closedShift = shiftRecords.find(r => r.userId === user.id && r.endedAt) || null
+        const active = recs.find(r => !r.endedAt) || null
+        const departed = !shift && (closedShift != null || (!active && recs.some(r => r.endedAt)))
+
+        // Durée totale shift depuis le record SHIFT parent
+        const totalShiftMin = shift
+          ? (now - new Date(shift.startedAt + 'Z').getTime()) / 60000
+          : closedShift?.durationMin ?? 0
+
+        const alerts: string[] = []
+
+        // Alerte retard (depuis le SHIFT parent)
+        const activeShift = shift || closedShift
+        if (activeShift?.isLate && (activeShift.lateMinutes ?? 0) > 0) {
+          alerts.push(`Retard de ${fmtDur(activeShift.lateMinutes!)}`)
+        }
+
+        // Alerte dépassement pause/lunch (depuis le record enfant actif)
+        if (active) {
+          const cfg = STATUS_CONFIG[active.status]
+          const elapsed = (now - new Date(active.startedAt + 'Z').getTime()) / 60000
+          if (cfg?.limitMin && elapsed > cfg.limitMin) {
+            alerts.push(`Dépassement ${cfg.label} +${fmtDur(elapsed - cfg.limitMin)}`)
+          }
+        }
+
+        // Alerte départ anticipé (depuis le SHIFT parent fermé)
+        if (closedShift?.isEarlyDeparture && (closedShift.earlyMinutes ?? 0) > 0) {
+          alerts.push(`Départ anticipé de ${fmtDur(closedShift.earlyMinutes!)}`)
+        }
+
+        return { user, activeRecord: active, shift, totalShiftMin, departed, alerts }
+      })
+
+      setMembers(statuses)
+      setLastUpdated(new Date())
+    } catch (error) {
+      console.error('Error in fetchAll:', error)
     }
-    const records: AttendanceRecord[] = await res.json()
-    
-    console.log('📊 Admin fetched records:', {
-      count: records.length,
-      statuses: [...new Set(records.map(r => r.status))]
-    })
-    
-    // ... reste du code inchangé
-  } catch (error) {
-    console.error('Error in fetchAll:', error)
-  }
-}, [users, filterMemberIds])
+  }, [users, filterMemberIds])
 
   useEffect(() => {
     fetchAll()
@@ -177,21 +230,23 @@ const fetchAll = useCallback(async () => {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-4 text-sm">
           <span className="text-indigo-600 font-semibold">{members.filter(m => m.activeRecord).length} actifs</span>
           <span className="text-slate-600">{members.filter(m => m.departed).length} partis</span>
           <span className="text-red-600 font-semibold">{members.filter(m => m.alerts.length > 0).length} alertes</span>
         </div>
-        <Button size="sm" variant="outline" className="gap-1" onClick={fetchAll}>
-          <RefreshCw className="w-4 h-4" />
-          Actualiser
-        </Button>
-        {lastUpdated && (
-          <p className="text-xs text-muted-foreground">
-            Mis à jour à {fmtTime(lastUpdated.toISOString())} · auto 30s
-          </p>
-        )}
+        <div className="flex items-center gap-3">
+          {lastUpdated && (
+            <p className="text-xs text-muted-foreground">
+              Mis à jour à {fmtTime(lastUpdated.toISOString())} · auto 30s
+            </p>
+          )}
+          <Button size="sm" variant="outline" className="gap-1" onClick={fetchAll}>
+            <RefreshCw className="w-4 h-4" />
+            Actualiser
+          </Button>
+        </div>
       </div>
 
       <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -244,6 +299,12 @@ const fetchAll = useCallback(async () => {
                     {m.totalShiftMin > 0 ? fmtDur(m.totalShiftMin) : '—'}
                   </span>
                 </div>
+                {m.shift?.plannedShift && (
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Planning</span>
+                    <span className="text-slate-600 font-mono">{m.shift.plannedShiftStart} → {m.shift.plannedShiftEnd}</span>
+                  </div>
+                )}
                 {m.alerts.map((a, i) => (
                   <div key={i} className="flex items-center gap-1 text-xs text-red-600 bg-red-50 rounded px-2 py-1">
                     <AlertTriangle className="w-3 h-3 flex-shrink-0" />{a}
@@ -253,9 +314,15 @@ const fetchAll = useCallback(async () => {
             </Card>
           )
         })}
+
+        {members.length === 0 && (
+          <div className="col-span-3 text-center py-12 text-muted-foreground text-sm border-2 border-dashed rounded-xl">
+            Aucun membre actif aujourd'hui
+          </div>
+        )}
       </div>
 
-      {/* Force status dialog */}
+      {/* Dialog changement statut */}
       <Dialog open={!!changingUser} onOpenChange={() => setChangingUser(null)}>
         <DialogContent>
           <DialogHeader>
@@ -265,7 +332,7 @@ const fetchAll = useCallback(async () => {
             <div className="space-y-2">
               <Label>Nouveau statut</Label>
               <Select value={changeStatus} onValueChange={v => setChangeStatus(v as StatusOrDepart)}>
-                <SelectTrigger> <SelectValue /> </SelectTrigger>
+                <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {ALL_STATUSES_WITH_DEPART.map(s => (
                     <SelectItem key={s} value={s}>
@@ -299,7 +366,7 @@ const fetchAll = useCallback(async () => {
   )
 }
 
-// ── Management Tab ────────────────────────────────────────────────────────────
+// ── Management Tab ─────────────────────────────────────────────────────────────
 function ManagementTab({ users }: { users: UserItem[] }) {
   const [selectedUser, setSelectedUser] = useState('')
   const [selectedDate, setSelectedDate] = useState(todayStr())
@@ -428,8 +495,7 @@ function ManagementTab({ users }: { users: UserItem[] }) {
         onClick={() => { setShowAdd(true); setForm({ status: 'EN_PRODUCTION', startedAt: '', endedAt: '', note: '' }) }}
         disabled={!selectedUser}
       >
-        <Plus className="w-4 h-4" />
-        Ajouter une entrée
+        <Plus className="w-4 h-4" />Ajouter une entrée
       </Button>
 
       {loading ? (
@@ -440,7 +506,7 @@ function ManagementTab({ users }: { users: UserItem[] }) {
         </div>
       ) : (
         <div className="space-y-2">
-          {records.map(r => {
+          {records.filter(r => r.status !== 'SHIFT').map(r => {
             const cfg = STATUS_CONFIG[r.status]
             return (
               <div key={r.id} className="flex items-center justify-between p-3 bg-white dark:bg-slate-800 border border-slate-200 rounded-xl">
@@ -556,7 +622,7 @@ function ManagementTab({ users }: { users: UserItem[] }) {
   )
 }
 
-// ── History Tab ───────────────────────────────────────────────────────────────
+// ── History Tab ────────────────────────────────────────────────────────────────
 function HistoryTab({ users }: { users: UserItem[] }) {
   const [selectedUser, setSelectedUser] = useState('')
   const [selectedDate, setSelectedDate] = useState(todayStr())
@@ -581,7 +647,7 @@ function HistoryTab({ users }: { users: UserItem[] }) {
     }))
   }
 
-  const sortedRecords = [...records].sort((a, b) => {
+  const sortedRecords = [...records].filter(r => r.status !== 'SHIFT').sort((a, b) => {
     if (!sortConfig) return 0
     const { key, direction } = sortConfig
     let aVal: any, bVal: any
@@ -591,7 +657,6 @@ function HistoryTab({ users }: { users: UserItem[] }) {
       case 'start': aVal = a.startedAt; bVal = b.startedAt; break
       case 'end': aVal = a.endedAt || ''; bVal = b.endedAt || ''; break
       case 'duration': aVal = a.durationMin || 0; bVal = b.durationMin || 0; break
-      case 'note': aVal = a.note || ''; bVal = b.note || ''; break
       default: return 0
     }
     if (aVal < bVal) return direction === 'asc' ? -1 : 1
@@ -607,16 +672,6 @@ function HistoryTab({ users }: { users: UserItem[] }) {
     }
     return null
   }
-
-  const totalDuration = records.reduce((acc, r) => acc + (r.durationMin || 0), 0)
-  const shiftDuration = records.filter(r => r.status === 'EN_PRODUCTION').reduce((acc, r) => acc + (r.durationMin || 0), 0)
-  const pauseDuration = records.filter(r => r.status === 'PAUSE').reduce((acc, r) => acc + (r.durationMin || 0), 0)
-  const lunchDuration = records.filter(r => r.status === 'LUNCH').reduce((acc, r) => acc + (r.durationMin || 0), 0)
-  const otherDuration = totalDuration - shiftDuration - pauseDuration - lunchDuration
-  const shiftPercent = totalDuration > 0 ? (shiftDuration / totalDuration) * 100 : 0
-  const pausePercent = totalDuration > 0 ? (pauseDuration / totalDuration) * 100 : 0
-  const lunchPercent = totalDuration > 0 ? (lunchDuration / totalDuration) * 100 : 0
-  const otherPercent = totalDuration > 0 ? (otherDuration / totalDuration) * 100 : 0
 
   return (
     <div className="space-y-4">
@@ -640,88 +695,70 @@ function HistoryTab({ users }: { users: UserItem[] }) {
 
       {loading ? (
         <div className="text-center py-8 text-muted-foreground text-sm">Chargement...</div>
-      ) : records.length === 0 ? (
+      ) : sortedRecords.length === 0 ? (
         <div className="text-center py-8 text-muted-foreground text-sm border-2 border-dashed rounded-xl">
           {selectedUser ? 'Aucune entrée pour cette date' : 'Sélectionnez un membre'}
         </div>
       ) : (
-        <>
-          <div className="overflow-x-auto rounded-xl border border-slate-200">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50">
-                <tr>
-                  {[
-                    { key: 'date', label: 'Date' },
-                    { key: 'status', label: 'Statut' },
-                    { key: 'start', label: 'Heure début' },
-                    { key: 'end', label: 'Heure fin' },
-                    { key: 'duration', label: 'Durée' },
-                    { key: 'alert', label: 'Alerte' },
-                    { key: 'note' , label: 'Note' },
-                  ].map(col => (
-                    <th
-                      key={col.key}
-                      className="text-left px-4 py-3 font-medium text-muted-foreground cursor-pointer hover:bg-slate-100"
-                      onClick={() => handleSort(col.key)}
-                    >
-                      {col.label}
-                      {sortConfig?.key === col.key && (
-                        <span className="ml-1">{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
-                      )}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {sortedRecords.map((r, i) => {
-                  const cfg = STATUS_CONFIG[r.status]
-                  const alert = getAlertForRecord(r)
-                  return (
-                    <tr key={r.id} className={`border-t border-slate-100 hover:bg-slate-50 ${alert ? 'bg-red-50/30' : ''}`}>
-                      <td className="px-4 py-3 text-muted-foreground">{r.startedAt.split('T')[0]}</td>
-                      <td className="px-4 py-3">
-                        <Badge className={`${cfg?.bg} ${cfg?.color} border-0 text-xs gap-1`}>
-                          {cfg?.icon}{cfg?.label}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-3 font-mono text-xs">{fmtTime(r.startedAt)}</td>
-                      <td className="px-4 py-3 font-mono text-xs">{r.endedAt ? fmtTime(r.endedAt) : '—'}</td>
-                      <td className="px-4 py-3 font-mono text-xs">{r.durationMin ? fmtDur(r.durationMin) : '—'}</td>
-                      <td className="px-4 py-3">
-                        {alert ? (
-                          <span className="text-xs text-red-600 flex items-center gap-1">
-                            <AlertTriangle className="w-3 h-3" />{alert}
-                          </span>
-                        ) :  <span className="text-xs text-emerald-600">✓</span>}
-                      </td>
-                      <td className="px-4 py-3 text-muted-foreground text-xs italic">{r.note || '—'}</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-
-          {totalDuration > 0 && (
-            <Card className="border-2 border-indigo-200">
-              <CardHeader>
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <Clock className="h-4 w-4 text-indigo-500" />
-                  Répartition du temps
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-center text-muted-foreground py-4">Graphique en développement</div>
-              </CardContent>
-            </Card>
-          )}
-        </>
+        <div className="overflow-x-auto rounded-xl border border-slate-200">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50">
+              <tr>
+                {[
+                  { key: 'date', label: 'Date' },
+                  { key: 'status', label: 'Statut' },
+                  { key: 'start', label: 'Heure début' },
+                  { key: 'end', label: 'Heure fin' },
+                  { key: 'duration', label: 'Durée' },
+                  { key: 'alert', label: 'Alerte' },
+                ].map(col => (
+                  <th
+                    key={col.key}
+                    className="text-left px-4 py-3 font-medium text-muted-foreground cursor-pointer hover:bg-slate-100"
+                    onClick={() => handleSort(col.key)}
+                  >
+                    {col.label}
+                    {sortConfig?.key === col.key && (
+                      <span className="ml-1">{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+                    )}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {sortedRecords.map((r) => {
+                const cfg = STATUS_CONFIG[r.status]
+                const alert = getAlertForRecord(r)
+                return (
+                  <tr key={r.id} className={`border-t border-slate-100 hover:bg-slate-50 ${alert ? 'bg-red-50/30' : ''}`}>
+                    <td className="px-4 py-3 text-muted-foreground">{r.startedAt.split('T')[0]}</td>
+                    <td className="px-4 py-3">
+                      <Badge className={`${cfg?.bg} ${cfg?.color} border-0 text-xs gap-1`}>
+                        {cfg?.icon}{cfg?.label}
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs">{fmtTime(r.startedAt)}</td>
+                    <td className="px-4 py-3 font-mono text-xs">{r.endedAt ? fmtTime(r.endedAt) : '—'}</td>
+                    <td className="px-4 py-3 font-mono text-xs">{r.durationMin ? fmtDur(r.durationMin) : '—'}</td>
+                    <td className="px-4 py-3">
+                      {alert ? (
+                        <span className="text-xs text-red-600 flex items-center gap-1">
+                          <AlertTriangle className="w-3 h-3" />{alert}
+                        </span>
+                      ) : <span className="text-xs text-emerald-600">✓</span>}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   )
 }
 
-// ── Reports Tab ───────────────────────────────────────────────────────────────
+// ── Reports Tab ────────────────────────────────────────────────────────────────
 interface ReportRow {
   userName: string; date: string
   totalShift: number; totalPause: number; totalLunch: number; totalOther: number
@@ -748,13 +785,13 @@ function ReportsTab({ users }: { users: UserItem[] }) {
     const res = await fetch(`/api/attendance?all=true&dateFrom=${from}&dateTo=${to}`)
     if (res.ok) setRecords(await res.json())
     setLoading(false)
-  }, [period])
+  }, [period, dateFrom, dateTo])
 
   useEffect(() => { fetchReport() }, [period])
 
   const buildRows = (): ReportRow[] => {
     const map = new Map<string, AttendanceRecord[]>()
-    for (const r of records) {
+    for (const r of records.filter(r => r.status !== 'SHIFT')) {
       const date = r.startedAt.split('T')[0]
       const key = `${r.userId}__${date}`
       if (!map.has(key)) map.set(key, [])
@@ -866,7 +903,9 @@ function ReportsTab({ users }: { users: UserItem[] }) {
       {loading ? (
         <div className="text-center py-8 text-muted-foreground text-sm">Chargement...</div>
       ) : rows.length === 0 ? (
-        <div className="text-center py-8 text-muted-foreground text-sm border-2 border-dashed rounded-xl">Aucune donnée pour cette période</div>
+        <div className="text-center py-8 text-muted-foreground text-sm border-2 border-dashed rounded-xl">
+          Aucune donnée pour cette période
+        </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-slate-200">
           <table className="w-full text-sm">
@@ -919,7 +958,7 @@ function ReportsTab({ users }: { users: UserItem[] }) {
   )
 }
 
-// ── Main ─────────────────────────────────────────────────────────────────────
+// ── Main ──────────────────────────────────────────────────────────────────────
 interface AdminAttendanceViewProps {
   showOnlyRealtime?: boolean
   filterMemberIds?: string[]

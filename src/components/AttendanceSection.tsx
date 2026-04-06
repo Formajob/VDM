@@ -12,7 +12,7 @@ import {
 
 type AttendanceStatus =
   | 'EN_PRODUCTION' | 'PAUSE' | 'LUNCH' | 'REUNION'
-  | 'RENCONTRE' | 'FORMATION' | 'ABSENT' | 'CONGE'
+  | 'RENCONTRE' | 'FORMATION' | 'ABSENT' | 'CONGE' | 'SHIFT'
 
 interface AttendanceRecord {
   id: string; userId: string; status: AttendanceStatus
@@ -40,6 +40,7 @@ const STATUS_CONFIG: Record<AttendanceStatus, StatusConfig> = {
   FORMATION:     { label: 'Formation', icon: <BookOpen className="w-4 h-4" />,        color: 'text-emerald-600',bgColor: 'bg-emerald-50', borderColor: 'border-emerald-300',limitMin: 60,  description: '60 min' },
   ABSENT:        { label: 'Absent',    icon: <UserX className="w-4 h-4" />,           color: 'text-red-600',    bgColor: 'bg-red-50',     borderColor: 'border-red-300',    limitMin: null,description: 'Sans limite' },
   CONGE:         { label: 'Congé',     icon: <Palmtree className="w-4 h-4" />,        color: 'text-teal-600',   bgColor: 'bg-teal-50',    borderColor: 'border-teal-300',   limitMin: null,description: 'Sans limite' },
+  SHIFT:         { label: 'Shift',     icon: <Play className="w-4 h-4" />,            color: 'text-indigo-600', bgColor: 'bg-indigo-50',  borderColor: 'border-indigo-300', limitMin: 450, description: '7h30 minimum' },
 }
 
 const FULLDAY_STATUSES: AttendanceStatus[] = ['ABSENT', 'CONGE']
@@ -52,8 +53,10 @@ function formatDuration(minutes: number): string {
   return h > 0 ? `${h}h${m.toString().padStart(2,'0')}m${s.toString().padStart(2,'0')}s` : `${m}m${s.toString().padStart(2,'0')}s`
 }
 
+// ✅ CORRECTION : Ne pas ajouter 'Z' pour éviter décalage timezone
 function formatTime(iso: string): string {
-  return new Date(iso + 'Z').toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+  const date = new Date(iso)
+  return date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
 }
 
 function formatMinutes(min: number | null): string {
@@ -74,12 +77,16 @@ export default function AttendanceSection({ userId }: { userId: string }) {
 
   const fetchRecords = useCallback(async () => {
     try {
+      // ✅ CORRECTION : Ajouter userId pour filtrer les records
       const res = await fetch(`/api/attendance?date=${today}&userId=${userId}`)
       if (!res.ok) return
       const data: AttendanceRecord[] = await res.json()
       setRecords(data)
 
-      const active = data.find(r => !r.endedAt) || null
+      // ✅ Chercher le record enfant actif EN PRIORITÉ (pas SHIFT)
+      const active = data.find(r => !r.endedAt && r.status !== 'SHIFT') || 
+                     data.find(r => !r.endedAt && r.status === 'SHIFT') || 
+                     null
       setActiveRecord(active)
 
       const hasFullDay = data.some(r => FULLDAY_STATUSES.includes(r.status))
@@ -87,11 +94,18 @@ export default function AttendanceSection({ userId }: { userId: string }) {
 
       const hasDeparted = data.length > 0 && !active && !hasFullDay && data.some(r => r.endedAt)
       setDeparted(hasDeparted)
+      
+      console.log('📊 Fetched records:', {
+        count: data.length,
+        active: active?.status,
+        userId: userId
+      })
     } catch (error) {
       console.error('Error fetching attendance:', error)
     }
   }, [today, userId])
 
+  // ✅ POLLING toutes les 5 secondes
   useEffect(() => {
     fetchRecords()
     const iv = setInterval(fetchRecords, 5000)
@@ -100,7 +114,8 @@ export default function AttendanceSection({ userId }: { userId: string }) {
 
   useEffect(() => {
     if (!activeRecord) { setElapsed(0); return }
-    const start = new Date(activeRecord.startedAt + 'Z')
+    // ✅ CORRECTION : Ne pas ajouter 'Z' pour éviter décalage timezone
+    const start = new Date(activeRecord.startedAt)
     const update = () => {
       const diff = (Date.now() - start.getTime()) / 60000
       setElapsed(diff > 0 ? diff : 0)
@@ -110,7 +125,7 @@ export default function AttendanceSection({ userId }: { userId: string }) {
     return () => clearInterval(iv)
   }, [activeRecord])
 
-  // ✅ CORRECTION : Fonction marquée async
+  // ✅ CORRECTION : Fonction async avec gestion correcte du départ
   const handleStatus = async (status: AttendanceStatus | 'DEPART') => {
     setLoading(true)
     try {
@@ -123,7 +138,7 @@ export default function AttendanceSection({ userId }: { userId: string }) {
         }
         
         const now = new Date()
-        const started = new Date(activeRecord.startedAt + 'Z')
+        const started = new Date(activeRecord.startedAt)
         const durationMin = Math.max(0, Math.round((now.getTime() - started.getTime()) / 60000))
         
         console.log('🚪 Departure:', {
@@ -176,7 +191,7 @@ export default function AttendanceSection({ userId }: { userId: string }) {
     elapsed > (STATUS_CONFIG[activeRecord.status]?.limitMin ?? Infinity)
 
   const totalShiftMin = records
-    .filter(r => r.status === 'EN_PRODUCTION')
+    .filter(r => r.status === 'EN_PRODUCTION' || r.status === 'SHIFT')
     .reduce((acc, r) => {
       if (r.durationMin) return acc + r.durationMin
       if (!r.endedAt && activeRecord?.id === r.id) return acc + elapsed
