@@ -273,7 +273,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'userId or targetUserId required' }, { status: 400 })
     }
 
-    // ✅ CAS 1: DÉPART - DOIT ÊTRE EN PREMIER
+    // ✅ CAS 1: DÉPART - DOIT ÊTRE EN PREMIER (ferme enfant + SHIFT parent)
     if (body.status === 'DEPART') {
       console.log('🚪 Departure for:', targetUserId)
 
@@ -316,7 +316,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, departed: true }, { status: 200 })
     }
 
-    // ✅ CAS 2: Clock-out par ID
+    // ✅ CAS 2: Clock-out par ID (après DÉPART)
     if (body.id && body.endedAt && !body.forceStatus) {
       console.log('⏰ Clock-out for specific record:', body.id)
       
