@@ -240,7 +240,9 @@ useEffect(() => {
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-4 text-sm">
-          <span className="text-indigo-600 font-semibold">{members.filter(m => m.activeRecord).length} actifs</span>
+          <span className="text-indigo-600 font-semibold">
+  {members.filter(m => m.activeRecord || m.shift).length} actifs
+</span>
           <span className="text-slate-600">{members.filter(m => m.departed).length} partis</span>
           <span className="text-red-600 font-semibold">{members.filter(m => m.alerts.length > 0).length} alertes</span>
         </div>
@@ -261,9 +263,9 @@ useEffect(() => {
         {members.map(m => {
           const cfg = m.activeRecord ? STATUS_CONFIG[m.activeRecord.status] : null
           // ✅ CORRECTION : Ne pas ajouter 'Z'
-          const elapsed = m.activeRecord
-            ? (now - new Date(m.activeRecord.startedAt + 'Z').getTime()) / 60000 
-            : 0
+         const elapsed = m.activeRecord
+  ? (now - new Date(m.activeRecord.startedAt + 'Z').getTime()) / 60000
+  : 0
           const isOvertime = cfg?.limitMin && elapsed > cfg.limitMin
 
           return (
@@ -984,10 +986,15 @@ export default function AdminAttendanceView({
   const [users, setUsers] = useState<UserItem[]>([])
 
   useEffect(() => {
-    fetch('/api/users').then(r => r.json()).then(data => {
-      setUsers(data.map((u: any) => ({ id: u.id, name: u.name, email: u.email, jobRole: u.jobRole || null })))
-    })
-  }, [])
+  fetch('/api/users').then(r => r.json()).then(data => {
+    setUsers(data.map((u: any) => ({ 
+      id: u.id, 
+      name: u.name, 
+      email: u.email, 
+      jobRole: u.jobRole || null 
+    })).filter((u: any) => u.jobRole !== 'ADMIN'))  // ← AJOUTER FILTRE
+  })
+}, [])
 
   return (
     <div className="space-y-6">
