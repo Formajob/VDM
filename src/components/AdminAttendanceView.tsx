@@ -33,6 +33,8 @@ interface AttendanceRecord {
   isEarlyDeparture?: boolean
   earlyMinutes?: number
   plannedShift?: { start: string; end: string }
+  plannedShiftStart?: string
+  plannedShiftEnd?: string
   parentShiftId?: string | null
 }
 
@@ -73,8 +75,10 @@ function fmtDur(min: number): string {
   return h > 0 ? `${h}h${m.toString().padStart(2, '0')}` : `${m}min`
 }
 
+// ✅ CORRECTION : Ne pas ajouter 'Z' pour éviter décalage timezone
 function fmtTime(iso: string): string {
-  return new Date(iso + 'Z').toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+  const date = new Date(iso + 'Z')
+  return date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
 }
 
 function fmtElapsed(min: number): string {
@@ -105,7 +109,8 @@ interface RealtimeTabProps {
   filterMemberIds?: string[]
 }
 
-function RealtimeTab({ users, filterMemberIds }: RealtimeTabProps) {
+// Ligne ~100
+function RealtimeTab({ users, filterMemberIds, disablePolling }: RealtimeTabProps & { disablePolling?: boolean }) {
   const [members, setMembers] = useState<MemberStatus[]>([])
   const [tick, setTick] = useState(0)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
@@ -147,9 +152,9 @@ function RealtimeTab({ users, filterMemberIds }: RealtimeTabProps) {
         const active = recs.find(r => !r.endedAt) || null
         const departed = !shift && (closedShift != null || (!active && recs.some(r => r.endedAt)))
 
-        // Durée totale shift depuis le record SHIFT parent
+        // ✅ CORRECTION : Ne pas ajouter 'Z' pour calcul local
         const totalShiftMin = shift
-          ? (now - new Date(shift.startedAt + 'Z').getTime()) / 60000
+          ? (now - new Date(shift.startedAt).getTime()) / 60000
           : closedShift?.durationMin ?? 0
 
         const alerts: string[] = []
@@ -163,7 +168,8 @@ function RealtimeTab({ users, filterMemberIds }: RealtimeTabProps) {
         // Alerte dépassement pause/lunch (depuis le record enfant actif)
         if (active) {
           const cfg = STATUS_CONFIG[active.status]
-          const elapsed = (now - new Date(active.startedAt + 'Z').getTime()) / 60000
+          // ✅ CORRECTION : Ne pas ajouter 'Z'
+          const elapsed = (now - new Date(active.startedAt + 'Z').getTime()) / 60000  // ← AJOUTER 'Z'
           if (cfg?.limitMin && elapsed > cfg.limitMin) {
             alerts.push(`Dépassement ${cfg.label} +${fmtDur(elapsed - cfg.limitMin)}`)
           }
@@ -184,11 +190,13 @@ function RealtimeTab({ users, filterMemberIds }: RealtimeTabProps) {
     }
   }, [users, filterMemberIds])
 
-  useEffect(() => {
-    fetchAll()
+useEffect(() => {
+  fetchAll()
+  if (!disablePolling) {  // ← 1 LIGNE À AJOUTER
     const iv = setInterval(fetchAll, 30000)
     return () => clearInterval(iv)
-  }, [fetchAll])
+  }
+}, [fetchAll, disablePolling])  // ← AJOUTER disablePolling ici
 
   useEffect(() => {
     const iv = setInterval(() => setTick(t => t + 1), 1000)
@@ -252,8 +260,9 @@ function RealtimeTab({ users, filterMemberIds }: RealtimeTabProps) {
       <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
         {members.map(m => {
           const cfg = m.activeRecord ? STATUS_CONFIG[m.activeRecord.status] : null
+          // ✅ CORRECTION : Ne pas ajouter 'Z'
           const elapsed = m.activeRecord
-            ? (now - new Date(m.activeRecord.startedAt + 'Z').getTime()) / 60000
+            ? (now - new Date(m.activeRecord.startedAt + 'Z').getTime()) / 60000 
             : 0
           const isOvertime = cfg?.limitMin && elapsed > cfg.limitMin
 
@@ -460,10 +469,11 @@ function ManagementTab({ users }: { users: UserItem[] }) {
 
   const openEdit = (r: AttendanceRecord) => {
     setEditRecord(r)
+    // ✅ CORRECTION : Ne pas ajouter 'Z'
     setForm({
       status: r.status,
-      startedAt: new Date(r.startedAt + 'Z').toTimeString().slice(0, 5),
-      endedAt: r.endedAt ? new Date(r.endedAt + 'Z').toTimeString().slice(0, 5) : '',
+  startedAt: new Date(r.startedAt + 'Z').toTimeString().slice(0, 5),  // ← AJOUTER 'Z'
+endedAt: r.endedAt ? new Date(r.endedAt + 'Z').toTimeString().slice(0, 5) : '',  // ← AJOUTER 'Z'
       note: r.note || '',
     })
   }
@@ -959,14 +969,17 @@ function ReportsTab({ users }: { users: UserItem[] }) {
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
+// Ligne ~460
 interface AdminAttendanceViewProps {
   showOnlyRealtime?: boolean
   filterMemberIds?: string[]
+  disablePolling?: boolean  // ← AJOUTER ÇA
 }
 
 export default function AdminAttendanceView({
   showOnlyRealtime = false,
-  filterMemberIds
+  filterMemberIds,
+  disablePolling  // ← 1 LIGNE À AJOUTER
 }: AdminAttendanceViewProps) {
   const [users, setUsers] = useState<UserItem[]>([])
 
@@ -985,22 +998,23 @@ export default function AdminAttendanceView({
         </div>
       )}
 
-      {showOnlyRealtime ? (
-        <RealtimeTab users={users} filterMemberIds={filterMemberIds} />
-      ) : (
-        <Tabs defaultValue="realtime" className="space-y-4">
-          <TabsList>
-            <TabsTrigger value="realtime">Temps réel</TabsTrigger>
-            <TabsTrigger value="history">Historique</TabsTrigger>
-            <TabsTrigger value="management">Gestion</TabsTrigger>
-            <TabsTrigger value="reports">Rapports</TabsTrigger>
-          </TabsList>
-          <TabsContent value="realtime"><RealtimeTab users={users} filterMemberIds={filterMemberIds} /></TabsContent>
-          <TabsContent value="history"><HistoryTab users={users} /></TabsContent>
-          <TabsContent value="management"><ManagementTab users={users} /></TabsContent>
-          <TabsContent value="reports"><ReportsTab users={users} /></TabsContent>
-        </Tabs>
-      )}
+ // Ligne ~475
+{showOnlyRealtime ? (
+  <RealtimeTab users={users} filterMemberIds={filterMemberIds} disablePolling={disablePolling} />
+) : (
+  <Tabs defaultValue="realtime" className="space-y-4">
+    <TabsList>
+      <TabsTrigger value="realtime">Temps réel</TabsTrigger>
+      <TabsTrigger value="history">Historique</TabsTrigger>
+      <TabsTrigger value="management">Gestion</TabsTrigger>
+      <TabsTrigger value="reports">Rapports</TabsTrigger>
+    </TabsList>
+    <TabsContent value="realtime"><RealtimeTab users={users} filterMemberIds={filterMemberIds} disablePolling={disablePolling} /></TabsContent>
+    <TabsContent value="history"><HistoryTab users={users} /></TabsContent>
+    <TabsContent value="management"><ManagementTab users={users} /></TabsContent>
+    <TabsContent value="reports"><ReportsTab users={users} /></TabsContent>
+  </Tabs>
+)}
     </div>
   )
 }

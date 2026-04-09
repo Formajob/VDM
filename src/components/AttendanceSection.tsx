@@ -12,13 +12,12 @@ import {
 
 type AttendanceStatus =
   | 'EN_PRODUCTION' | 'PAUSE' | 'LUNCH' | 'REUNION'
-  | 'RENCONTRE' | 'FORMATION' | 'ABSENT' | 'CONGE' | 'SHIFT'
+  | 'RENCONTRE' | 'FORMATION' | 'ABSENT' | 'CONGE'
 
 interface AttendanceRecord {
   id: string; userId: string; status: AttendanceStatus
   startedAt: string; endedAt: string | null
   durationMin: number | null; note: string | null
-  parentShiftId?: string | null
   isLate?: boolean
   lateMinutes?: number | null
   isEarlyDeparture?: boolean
@@ -40,7 +39,6 @@ const STATUS_CONFIG: Record<AttendanceStatus, StatusConfig> = {
   FORMATION:     { label: 'Formation', icon: <BookOpen className="w-4 h-4" />,        color: 'text-emerald-600',bgColor: 'bg-emerald-50', borderColor: 'border-emerald-300',limitMin: 60,  description: '60 min' },
   ABSENT:        { label: 'Absent',    icon: <UserX className="w-4 h-4" />,           color: 'text-red-600',    bgColor: 'bg-red-50',     borderColor: 'border-red-300',    limitMin: null,description: 'Sans limite' },
   CONGE:         { label: 'Congé',     icon: <Palmtree className="w-4 h-4" />,        color: 'text-teal-600',   bgColor: 'bg-teal-50',    borderColor: 'border-teal-300',   limitMin: null,description: 'Sans limite' },
-  SHIFT:         { label: 'Shift',     icon: <Play className="w-4 h-4" />,            color: 'text-indigo-600', bgColor: 'bg-indigo-50',  borderColor: 'border-indigo-300', limitMin: 450, description: '7h30 minimum' },
 }
 
 const FULLDAY_STATUSES: AttendanceStatus[] = ['ABSENT', 'CONGE']
@@ -53,10 +51,8 @@ function formatDuration(minutes: number): string {
   return h > 0 ? `${h}h${m.toString().padStart(2,'0')}m${s.toString().padStart(2,'0')}s` : `${m}m${s.toString().padStart(2,'0')}s`
 }
 
-// ✅ CORRECTION : Ne pas ajouter 'Z' pour éviter décalage timezone
 function formatTime(iso: string): string {
-  const date = new Date(iso)
-  return date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+  return new Date(iso + 'Z').toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
 }
 
 function formatMinutes(min: number | null): string {
@@ -77,35 +73,21 @@ export default function AttendanceSection({ userId }: { userId: string }) {
 
   const fetchRecords = useCallback(async () => {
     try {
-      // ✅ CORRECTION : Ajouter userId pour filtrer les records
       const res = await fetch(`/api/attendance?date=${today}&userId=${userId}`)
       if (!res.ok) return
       const data: AttendanceRecord[] = await res.json()
       setRecords(data)
-
-      // ✅ Chercher le record enfant actif EN PRIORITÉ (pas SHIFT)
-      const active = data.find(r => !r.endedAt && r.status !== 'SHIFT') || 
-                     data.find(r => !r.endedAt && r.status === 'SHIFT') || 
-                     null
+      const active = data.find(r => !r.endedAt) || null
       setActiveRecord(active)
-
       const hasFullDay = data.some(r => FULLDAY_STATUSES.includes(r.status))
       setIsFullDayLocked(hasFullDay)
-
       const hasDeparted = data.length > 0 && !active && !hasFullDay && data.some(r => r.endedAt)
       setDeparted(hasDeparted)
-      
-      console.log('📊 Fetched records:', {
-        count: data.length,
-        active: active?.status,
-        userId: userId
-      })
     } catch (error) {
       console.error('Error fetching attendance:', error)
     }
   }, [today, userId])
 
-  // ✅ POLLING toutes les 5 secondes
   useEffect(() => {
     fetchRecords()
     const iv = setInterval(fetchRecords, 5000)
@@ -114,8 +96,7 @@ export default function AttendanceSection({ userId }: { userId: string }) {
 
   useEffect(() => {
     if (!activeRecord) { setElapsed(0); return }
-    // ✅ CORRECTION : Ne pas ajouter 'Z' pour éviter décalage timezone
-    const start = new Date(activeRecord.startedAt)
+    const start = new Date(activeRecord.startedAt + 'Z')
     const update = () => {
       const diff = (Date.now() - start.getTime()) / 60000
       setElapsed(diff > 0 ? diff : 0)
@@ -125,11 +106,9 @@ export default function AttendanceSection({ userId }: { userId: string }) {
     return () => clearInterval(iv)
   }, [activeRecord])
 
-  // ✅ CORRECTION : Fonction async avec gestion correcte du départ
   const handleStatus = async (status: AttendanceStatus | 'DEPART') => {
     setLoading(true)
     try {
-      // ✅ CAS SPÉCIAL: DÉPART → Fermer UNIQUEMENT le record actif via son ID
       if (status === 'DEPART') {
         if (!activeRecord) {
           toast.error('Aucun shift actif à fermer')
@@ -138,7 +117,7 @@ export default function AttendanceSection({ userId }: { userId: string }) {
         }
         
         const now = new Date()
-        const started = new Date(activeRecord.startedAt)
+        const started = new Date(activeRecord.startedAt + 'Z')
         const durationMin = Math.max(0, Math.round((now.getTime() - started.getTime()) / 60000))
         
         console.log('🚪 Departure:', {
@@ -147,25 +126,30 @@ export default function AttendanceSection({ userId }: { userId: string }) {
           durationMin
         })
         
-        // ✅ Envoyer l'ID du record à fermer (CAS 1 de l'API)
         const res = await fetch('/api/attendance', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             id: activeRecord.id,
+            userId: userId,
+            status: 'DEPART',  // ← CRITIQUE: Ajouter status DEPART
             endedAt: now.toISOString(),
             durationMin: durationMin,
           }),
         })
         
-        if (!res.ok) throw new Error()
+        if (!res.ok) {
+          const errorData = await res.json()
+          console.error('Departure error:', errorData)
+          throw new Error(errorData.error || 'Erreur départ')
+        }
+        
         toast.success('Bonne fin de journée ! Départ enregistré.')
         await fetchRecords()
         setLoading(false)
         return
       }
       
-      // ✅ CAS NORMAL: Changement de statut
       const res = await fetch('/api/attendance', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -191,7 +175,7 @@ export default function AttendanceSection({ userId }: { userId: string }) {
     elapsed > (STATUS_CONFIG[activeRecord.status]?.limitMin ?? Infinity)
 
   const totalShiftMin = records
-    .filter(r => r.status === 'EN_PRODUCTION' || r.status === 'SHIFT')
+    .filter(r => r.status === 'EN_PRODUCTION')
     .reduce((acc, r) => {
       if (r.durationMin) return acc + r.durationMin
       if (!r.endedAt && activeRecord?.id === r.id) return acc + elapsed
@@ -229,7 +213,6 @@ export default function AttendanceSection({ userId }: { userId: string }) {
                 </div>
               </div>
             </div>
-
           ) : activeRecord && cfg ? (
             <div className={`rounded-xl p-4 ${cfg.bgColor} border ${cfg.borderColor}`}>
               <div className="flex items-center justify-between">
@@ -254,21 +237,18 @@ export default function AttendanceSection({ userId }: { userId: string }) {
                 </div>
               )}
             </div>
-
           ) : departed ? (
             <div className="rounded-xl p-4 bg-slate-50 border border-slate-200 text-center">
               <LogOut className="w-6 h-6 text-slate-400 mx-auto mb-2" />
               <p className="text-sm font-medium text-slate-600">Départ enregistré</p>
               <p className="text-xs text-muted-foreground">Bonne fin de journée !</p>
             </div>
-
           ) : records.length === 0 ? (
             <div className="rounded-xl p-4 bg-slate-50 border-2 border-dashed border-slate-300 text-center">
               <Clock className="w-8 h-8 text-slate-300 mx-auto mb-2" />
               <p className="text-sm font-medium text-slate-600">Aucun pointage aujourd'hui</p>
-              <p className="text-xs text-muted-foreground">Sélectionnez un statut ci-dessous pour commencer</p>
+              <p className="text-xs text-muted-foreground">Cliquez sur "Shift" pour commencer votre journée</p>
             </div>
-
           ) : (
             <div className="rounded-xl p-4 bg-slate-50 border border-dashed border-slate-300 text-center">
               <p className="text-sm text-muted-foreground">Aucun statut actif — sélectionnez un statut ci-dessous</p>
@@ -277,41 +257,55 @@ export default function AttendanceSection({ userId }: { userId: string }) {
 
           {!departed && !isFullDayLocked && (
             <>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {MEMBER_SELECTABLE_STATUSES.map(status => {
-                  const c = STATUS_CONFIG[status]
-                  const isActive = activeRecord?.status === status
-                  return (
-                    <button
-                      key={status}
-                      onClick={() => handleStatus(status)}
-                      disabled={loading || isActive}
-                      className={`
-                        flex flex-col items-center gap-1 p-3 rounded-xl border-2 text-xs font-medium
-                        transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed
-                        ${isActive
-                          ? `${c.borderColor} ${c.bgColor} ${c.color} ring-2 ring-offset-1`
-                          : `border-slate-200 ${c.bgColor} ${c.color}`
-                        }
-                      `}
-                    >
-                      <span className={c.color}>{c.icon}</span>
-                      <span>{c.label}</span>
-                      {c.limitMin && <span className="text-[10px] opacity-60">{c.description}</span>}
-                    </button>
-                  )
-                })}
-              </div>
-              
-              {records.length > 0 && (
-                <Button
-                  variant="outline"
-                  className="w-full gap-2 border-red-200 hover:border-red-400 hover:bg-red-50 text-red-600"
-                  onClick={() => handleStatus('DEPART')}
-                  disabled={loading}
-                >
-                  <LogOut className="w-4 h-4" />Enregistrer mon départ
-                </Button>
+              {records.length === 0 ? (
+                <div className="mt-4">
+                  <Button
+                    className="w-full gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white hover:from-indigo-700 hover:to-purple-700 py-6 text-lg font-semibold"
+                    onClick={() => handleStatus('EN_PRODUCTION')}
+                    disabled={loading}
+                  >
+                    <Play className="w-5 h-5" />Commencer mon shift
+                  </Button>
+                  <p className="text-xs text-center text-muted-foreground mt-3">
+                    Cliquez pour enregistrer le début de votre journée (08:00-17:00 par défaut)
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {MEMBER_SELECTABLE_STATUSES.map(status => {
+                      const c = STATUS_CONFIG[status]
+                      const isActive = activeRecord?.status === status
+                      return (
+                        <button
+                          key={status}
+                          onClick={() => handleStatus(status)}
+                          disabled={loading || isActive}
+                          className={`
+                            flex flex-col items-center gap-1 p-3 rounded-xl border-2 text-xs font-medium
+                            transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed
+                            ${isActive
+                              ? `${c.borderColor} ${c.bgColor} ${c.color} ring-2 ring-offset-1`
+                              : `border-slate-200 ${c.bgColor} ${c.color}`
+                            }
+                          `}
+                        >
+                          <span className={c.color}>{c.icon}</span>
+                          <span>{c.label}</span>
+                          {c.limitMin && <span className="text-[10px] opacity-60">{c.description}</span>}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <Button
+                    variant="outline"
+                    className="w-full gap-2 border-red-200 hover:border-red-400 hover:bg-red-50 text-red-600"
+                    onClick={() => handleStatus('DEPART')}
+                    disabled={loading}
+                  >
+                    <LogOut className="w-4 h-4" />Enregistrer mon départ
+                  </Button>
+                </>
               )}
             </>
           )}

@@ -47,7 +47,11 @@ interface EmployeeSummary {
 }
 
 function formatDateKey(date: Date): string {
-  return date.toISOString().split('T')[0]
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0')
+  ].join('-')
 }
 
 function formatDisplayDate(date: Date): string {
@@ -144,11 +148,11 @@ export default function AdminAttendanceReportsPage() {
         
         setSelectedMemberIds(membersOnly.map((m: any) => m.id))
         
-        const params = new URLSearchParams({
-          startDate: formatDateKey(startDate),
-          endDate: formatDateKey(endDate),
-          all: 'true',
-        })
+ const params = new URLSearchParams({
+  dateFrom: formatDateKey(startDate),
+  dateTo: formatDateKey(endDate),
+  all: 'true',
+})
         
         const attendanceRes = await fetch(`/api/attendance?${params}`, { credentials: 'include' })
         if (!attendanceRes.ok) throw new Error('Failed to fetch attendance')
@@ -170,7 +174,12 @@ export default function AdminAttendanceReportsPage() {
         })
         
         attendanceData.forEach((record: AttendanceRecord) => {
-          const date = record.startedAt.split('T')[0]
+          const recordDate = new Date(record.startedAt + 'Z')
+const date = [
+  recordDate.getFullYear(),
+  String(recordDate.getMonth() + 1).padStart(2, '0'),
+  String(recordDate.getDate()).padStart(2, '0')
+].join('-')
           const emp = employeeMap.get(record.userId)
           if (!emp) return
           

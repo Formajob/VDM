@@ -2,7 +2,7 @@
 
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import DashboardLayout from '@/components/layout/DashboardLayout'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -38,6 +38,7 @@ interface WeeklyPlanning {
   sunday: PlanningDayRaw | null
   user?: { name: string; email: string }
 }
+
 interface LeaveBalance {
   annualdays: number
   exceptionaldays: number
@@ -46,21 +47,20 @@ interface LeaveBalance {
 
 const DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
 const DAY_LABELS: Record<string, string> = {
-  sunday: 'Dimanche', monday: 'Lundi', tuesday: 'Mardi',
-  wednesday: 'Mercredi', thursday: 'Jeudi', friday: 'Vendredi', saturday: 'Samedi'
+  sunday: 'Dim', monday: 'Lun', tuesday: 'Mar',
+  wednesday: 'Mer', thursday: 'Jeu', friday: 'Ven', saturday: 'Sam'
 }
 
+// ✅ CORRECTION : Retourne juste les strings start/end (références stables)
 function getWeekRange(date: Date) {
-  const day = date.getDay() // 0 = dimanche, 1 = lundi, ..., 6 = samedi
+  const day = date.getDay()
   const sunday = new Date(date)
-  sunday.setDate(date.getDate() - day) // Dimanche de la semaine
+  sunday.setDate(date.getDate() - day)
   const saturday = new Date(sunday)
-  saturday.setDate(sunday.getDate() + 6) // Samedi (6 jours après)
+  saturday.setDate(sunday.getDate() + 6)
   return {
     start: sunday.toISOString().split('T')[0],
-    end: saturday.toISOString().split('T')[0],
-    sunday,
-    saturday
+    end: saturday.toISOString().split('T')[0]
   }
 }
 
@@ -72,35 +72,18 @@ function formatWeekRange(weekStart: string, weekEnd: string): string {
   return `${startDay} - ${endDay}`
 }
 
-// ── Planning Table Component ─────────────────────────────────────────────────
-
-// ── Planning Table Component (CORRIGÉ) ──────────────────────────────────────
-
-interface PlanningDayRaw {
-  startTime?: string
-  endTime?: string
-  shiftType?: string
-  isOff?: boolean
-}
-
 function PlanningTable({ planning, compact = false }: { planning: WeeklyPlanning; compact?: boolean }) {
   const renderDay = (day: string) => {
-    // ✅ Lire le format JSON de la BDD
     const dayData = planning[day as keyof WeeklyPlanning] as PlanningDayRaw | null
     
-    // Si pas de données ou shiftType = OFF/VAC
     if (!dayData || !dayData.startTime || dayData.shiftType === 'OFF' || dayData.shiftType === 'VAC') {
       const label = dayData?.shiftType === 'VAC' ? 'VAC' : 'OFF'
       const colorClass = dayData?.shiftType === 'VAC' ? 'text-yellow-600 bg-yellow-50' : 'text-slate-500 bg-slate-50'
-      
       return (
-        <div className={`text-center py-2 rounded text-xs font-medium ${colorClass}`}>
-          {label}
-        </div>
+        <div className={`text-center py-2 rounded text-xs font-medium ${colorClass}`}>{label}</div>
       )
     }
     
-    // ✅ Formater l'affichage : "08:00-17:00"
     const shiftLabel = `${dayData.startTime}-${dayData.endTime}`
     const isNight = dayData.shiftType === 'NIGHT'
     
@@ -141,95 +124,6 @@ function PlanningTable({ planning, compact = false }: { planning: WeeklyPlanning
   )
 }
 
-// ── Member History Component ─────────────────────────────────────────────────
-
-function MemberHistory({ userId }: { userId: string }) {
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
-  const [records, setRecords] = useState<any[]>([])
-  const [loading, setLoading] = useState(false)
-
-  const fetchRecords = useCallback(async () => {
-    setLoading(true)
-    const res = await fetch(`/api/attendance?userId=${userId}&date=${selectedDate}`)
-    if (res.ok) setRecords(await res.json())
-    setLoading(false)
-  }, [userId, selectedDate])
-
-  useEffect(() => { fetchRecords() }, [fetchRecords])
-
-  const totalDuration = records.reduce((acc, r) => acc + (r.durationMin || 0), 0)
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <Label className="text-sm font-medium">Date</Label>
-        <Input 
-          type="date" 
-          value={selectedDate} 
-          onChange={e => setSelectedDate(e.target.value)} 
-          className="w-40"
-        />
-      </div>
-
-      {loading ? (
-        <div className="text-center py-8 text-muted-foreground text-sm">Chargement...</div>
-      ) : records.length === 0 ? (
-        <div className="text-center py-8 text-muted-foreground text-sm border-2 border-dashed rounded-xl">
-          Aucune entrée pour cette date
-        </div>
-      ) : (
-        <>
-          <div className="flex justify-between items-center p-3 bg-indigo-50 rounded-lg">
-            <span className="text-sm text-muted-foreground">Total du jour</span>
-            <span className="font-semibold text-indigo-700">{Math.floor(totalDuration / 60)}h{totalDuration % 60}min</span>
-          </div>
-
-          <div className="overflow-x-auto rounded-xl border border-slate-200">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50">
-                <tr>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Statut</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Heure début</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Heure fin</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Durée</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Note</th>
-                </tr>
-              </thead>
-              <tbody>
-                {records.map(r => {
-                  const cfg: any = {
-                    EN_PRODUCTION: { label: 'Shift', color: 'text-indigo-700', bg: 'bg-indigo-100' },
-                    PAUSE: { label: 'Pause', color: 'text-amber-700', bg: 'bg-amber-100' },
-                    LUNCH: { label: 'Lunch', color: 'text-orange-700', bg: 'bg-orange-100' },
-                    REUNION: { label: 'Réunion', color: 'text-blue-700', bg: 'bg-blue-100' },
-                    RENCONTRE: { label: 'Rencontre', color: 'text-purple-700', bg: 'bg-purple-100' },
-                    FORMATION: { label: 'Formation', color: 'text-emerald-700', bg: 'bg-emerald-100' },
-                  }[r.status] || { label: r.status, color: 'text-slate-700', bg: 'bg-slate-100' }
-                  return (
-                    <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50">
-                      <td className="px-4 py-3">
-                        <Badge className={`${cfg?.bg} ${cfg?.color} border-0 text-xs`}>
-                          {cfg?.label}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-3 font-mono text-xs">{new Date(r.startedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</td>
-                      <td className="px-4 py-3 font-mono text-xs">{r.endedAt ? new Date(r.endedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
-                      <td className="px-4 py-3 font-mono text-xs">{r.durationMin ? `${Math.floor(r.durationMin / 60)}h${r.durationMin % 60}min` : '—'}</td>
-                      <td className="px-4 py-3 text-muted-foreground text-xs italic">{r.note || '—'}</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
-    </div>
-  )
-}
-
-// ── Main Page ────────────────────────────────────────────────────────────────
-
 export default function PlanningPage() {
   const { data, status } = useSession()
   const { isDemo, demoUser } = useDemoMode()
@@ -238,14 +132,16 @@ export default function PlanningPage() {
   const user: DemoUser | null = (data?.user as DemoUser) || demoUser || null
   const isAdmin = user?.role === 'ADMIN'
 
-  const [currentWeek, setCurrentWeek] = useState(() => getWeekRange(new Date()))
+  // ✅ CORRECTION : États strings stables au lieu d'objet + ref pour éviter boucle
+  const [weekStart, setWeekStart] = useState(() => getWeekRange(new Date()).start)
+  const [weekEnd, setWeekEnd] = useState(() => getWeekRange(new Date()).end)
+  
   const [planning, setPlanning] = useState<WeeklyPlanning | null>(null)
   const [teamPlanning, setTeamPlanning] = useState<WeeklyPlanning[]>([])
   const [showTeam, setShowTeam] = useState(false)
   const [loading, setLoading] = useState(false)
   const [leaveBalance, setLeaveBalance] = useState<LeaveBalance | null>(null)
   
-  // Dialogs
   const [showSwap, setShowSwap] = useState(false)
   const [showLeave, setShowLeave] = useState(false)
   const [swapTarget, setSwapTarget] = useState('')
@@ -254,66 +150,91 @@ export default function PlanningPage() {
   const [leaveStart, setLeaveStart] = useState('')
   const [leaveEnd, setLeaveEnd] = useState('')
   const [teamMembers, setTeamMembers] = useState<{ id: string; name: string }[]>([])
+  
+  // ✅ CORRECTION : Ref pour tracker la dernière semaine fetchée et éviter doublons
+  const lastFetchedWeek = useRef<string>('')
+  const lastFetchedTeamWeek = useRef<string>('')
 
   useEffect(() => {
     if (!isDemo && status === 'unauthenticated') router.push('/login')
   }, [status, router, isDemo])
 
+  // ✅ CORRECTION : Dépendances stables + garde-fou avec ref
   const fetchPlanning = useCallback(async () => {
     if (!user?.id) return
+    const fetchKey = `my_${weekStart}`
+    if (lastFetchedWeek.current === fetchKey) return
+    
+    lastFetchedWeek.current = fetchKey
+    
     setLoading(true)
     
-    // Fetch user planning
-    const res = await fetch(`/api/planning?userId=${user.id}&weekStart=${currentWeek.start}`)
+    const res = await fetch(`/api/planning?userId=${user.id}&weekStart=${weekStart}`)
     if (res.ok) {
       const data = await res.json()
       setPlanning(data)
     }
     
-    // Fetch leave balance
     const balanceRes = await fetch(`/api/leave-balance?userId=${user.id}`)
     if (balanceRes.ok) {
       const balance = await balanceRes.json()
       setLeaveBalance(balance)
     }
     
-    // Fetch team members for swap (no auth needed on /api/users)
     const membersRes = await fetch('/api/users')
     if (membersRes.ok) {
       const members = await membersRes.json()
-      console.log('✅ Team members:', members)
       setTeamMembers(members.filter((m: any) => m.id !== user.id && m.role !== 'ADMIN'))
     }
     
     setLoading(false)
-  }, [user?.id, currentWeek.start])
+  }, [user?.id, weekStart])
 
+  // ✅ CORRECTION : Dépendances stables + garde-fou avec ref
   const fetchTeamPlanning = useCallback(async () => {
     if (!user?.id) return
+    const fetchKey = `team_${weekStart}`
+    if (lastFetchedTeamWeek.current === fetchKey) return
+    
+    lastFetchedTeamWeek.current = fetchKey
+    
     setLoading(true)
-    const res = await fetch(`/api/planning?weekStart=${currentWeek.start}&all=true`)
+    const res = await fetch(`/api/planning?weekStart=${weekStart}&all=true`)
     if (res.ok) {
       const data = await res.json()
-      console.log('✅ Team planning:', data)
       setTeamPlanning(data)
     }
     setLoading(false)
-  }, [user?.id, currentWeek.start])
+  }, [user?.id, weekStart])
 
+  // ✅ CORRECTION : useEffect avec dépendances stables uniquement
   useEffect(() => {
-    fetchPlanning()
-  }, [fetchPlanning])
+    if (showTeam) {
+      fetchTeamPlanning()
+    } else {
+      fetchPlanning()
+    }
+  }, [weekStart, showTeam])
 
+  // ✅ CORRECTION : Handlers avec comparaison avant setState
   const handlePrevWeek = () => {
-    const newSunday = new Date(currentWeek.sunday)
-    newSunday.setDate(newSunday.getDate() - 7)
-    setCurrentWeek(getWeekRange(newSunday))
+    const current = new Date(weekStart + 'T00:00:00')
+    current.setDate(current.getDate() - 7)
+    const { start, end } = getWeekRange(current)
+    if (start !== weekStart) {
+      setWeekStart(start)
+      setWeekEnd(end)
+    }
   }
 
   const handleNextWeek = () => {
-    const newSunday = new Date(currentWeek.sunday)
-    newSunday.setDate(newSunday.getDate() + 7)
-    setCurrentWeek(getWeekRange(newSunday))
+    const current = new Date(weekStart + 'T00:00:00')
+    current.setDate(current.getDate() + 7)
+    const { start, end } = getWeekRange(current)
+    if (start !== weekStart) {
+      setWeekStart(start)
+      setWeekEnd(end)
+    }
   }
 
   const handleSwapRequest = async () => {
@@ -325,8 +246,8 @@ export default function PlanningPage() {
         body: JSON.stringify({
           requesterId: user.id,
           targetUserId: swapTarget,
-          weekStart: currentWeek.start,
-          weekEnd: currentWeek.end,
+          weekStart,
+          weekEnd,
         }),
       })
       if (!res.ok) throw new Error()
@@ -376,28 +297,26 @@ export default function PlanningPage() {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-       {/* Header */}
-<div className="flex items-center justify-between flex-wrap gap-4">
-  <div>
-    <h1 className="text-3xl font-bold bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">
-      Mon Planning
-    </h1>
-    <p className="text-muted-foreground">Consultez et gérez votre emploi du temps</p>
-  </div>
-  <div className="flex gap-2">
-    <Button variant="outline" className="gap-2" onClick={() => router.push('/planning/requests')}>
-      <Repeat className="w-4 h-4" />Mes demandes
-    </Button>
-    <Button variant="outline" className="gap-2" onClick={() => setShowSwap(true)}>
-      <Repeat className="w-4 h-4" />Demander Swap
-    </Button>
-    <Button variant="outline" className="gap-2" onClick={() => setShowLeave(true)}>
-      <Palmtree className="w-4 h-4" />Demander Congé
-    </Button>
-  </div>
-</div>
+        <div className="flex items-center justify-between flex-wrap gap-4">
+          <div>
+            <h1 className="text-3xl font-bold bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">
+              Mon Planning
+            </h1>
+            <p className="text-muted-foreground">Consultez et gérez votre emploi du temps</p>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" className="gap-2" onClick={() => router.push('/planning/requests')}>
+              <Repeat className="w-4 h-4" />Mes demandes
+            </Button>
+            <Button variant="outline" className="gap-2" onClick={() => setShowSwap(true)}>
+              <Repeat className="w-4 h-4" />Demander Swap
+            </Button>
+            <Button variant="outline" className="gap-2" onClick={() => setShowLeave(true)}>
+              <Palmtree className="w-4 h-4" />Demander Congé
+            </Button>
+          </div>
+        </div>
 
-        {/* Week Navigation */}
         <Card className="border-2 border-indigo-200">
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
@@ -405,7 +324,7 @@ export default function PlanningPage() {
                 <ChevronLeft className="w-4 h-4" />
               </Button>
               <div className="text-center">
-                <p className="font-semibold text-lg">{formatWeekRange(currentWeek.start, currentWeek.end)}</p>
+                <p className="font-semibold text-lg">{formatWeekRange(weekStart, weekEnd)}</p>
                 <p className="text-sm text-muted-foreground">Semaine du dimanche au samedi</p>
               </div>
               <Button variant="ghost" size="sm" onClick={handleNextWeek}>
@@ -415,10 +334,8 @@ export default function PlanningPage() {
           </CardContent>
         </Card>
 
-        {/* Tabs: Mon Planning / Vue Équipe */}
         <Tabs value={showTeam ? 'team' : 'my'} onValueChange={(v) => {
           setShowTeam(v === 'team')
-          if (v === 'team') fetchTeamPlanning()
         }}>
           <TabsList className="bg-gradient-to-r from-indigo-100 to-purple-100">
             <TabsTrigger value="my" className="data-[state=active]:bg-white">Mon Planning</TabsTrigger>
@@ -463,7 +380,6 @@ export default function PlanningPage() {
           </TabsContent>
         </Tabs>
 
-        {/* Swap Dialog */}
         <Dialog open={showSwap} onOpenChange={setShowSwap}>
           <DialogContent>
             <DialogHeader>
@@ -486,7 +402,7 @@ export default function PlanningPage() {
                 </Select>
               </div>
               <div className="bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2 text-sm text-indigo-700">
-                📅 Semaine du {formatWeekRange(currentWeek.start, currentWeek.end)}
+                📅 Semaine du {formatWeekRange(weekStart, weekEnd)}
               </div>
               {swapTarget && (
                 <div className="text-xs text-muted-foreground">
@@ -501,15 +417,12 @@ export default function PlanningPage() {
           </DialogContent>
         </Dialog>
 
-        {/* Leave Dialog */}
         <Dialog open={showLeave} onOpenChange={setShowLeave}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Demander un congé</DialogTitle>
             </DialogHeader>
             <div className="space-y-4 py-2">
-              
-              {/* Solde annuel affiché en haut */}
               {leaveBalance && (
                 <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 flex items-center justify-between">
                   <span className="text-sm text-emerald-700">Solde congés annuels</span>
@@ -518,7 +431,6 @@ export default function PlanningPage() {
                   </span>
                 </div>
               )}
-
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Date de début</Label>
@@ -529,7 +441,6 @@ export default function PlanningPage() {
                   <Input type="date" value={leaveEnd} onChange={(e) => setLeaveEnd(e.target.value)} />
                 </div>
               </div>
-
               <div className="space-y-2">
                 <Label>Type de congé</Label>
                 <Select value={leaveType} onValueChange={setLeaveType}>
@@ -542,12 +453,10 @@ export default function PlanningPage() {
                   </SelectContent>
                 </Select>
               </div>
-
               <div className="space-y-2">
                 <Label>Raison (optionnel)</Label>
                 <Textarea value={leaveReason} onChange={(e) => setLeaveReason(e.target.value)} placeholder="Ex: Rendez-vous médical..." />
               </div>
-
               {leaveType !== 'ANNUEL' && (
                 <div className="text-xs text-muted-foreground bg-slate-50 rounded px-3 py-2">
                   ℹ️ Les congés {leaveType === 'EXCEPTIONNEL' ? 'exceptionnels' : leaveType === 'MALADIE' ? 'maladie' : 'autres'} ne déduisent pas de ton solde annuel.

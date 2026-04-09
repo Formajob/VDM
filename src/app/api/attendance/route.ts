@@ -273,60 +273,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'userId or targetUserId required' }, { status: 400 })
     }
 
-    // ✅ CAS 1: Clock-out simple (jamais un départ)
-    if (body.id && body.endedAt && !body.forceStatus && body.status !== 'DEPART') {
-      console.log('⏰ Clock-out for:', body.id)
-      const { data, error } = await supabaseAdmin
-        .from('Attendance')
-        .update({
-          endedAt: body.endedAt,
-          durationMin: body.durationMin,
-          updatedAt: now.toISOString(),
-        })
-        .eq('id', body.id)
-        .select()
-        .single()
-      if (error) throw error
-      return NextResponse.json(data, { status: 200 })
-    }
-
-    // ✅ CAS 2: Full day status (ABSENT, CONGE)
-    if (body.fullDay && body.forceStatus) {
-      console.log('📅 Full day status for:', targetUserId, 'on', body.startedAt)
-      const date = body.startedAt || todayStr()
-
-      await supabaseAdmin
-        .from('Attendance')
-        .delete()
-        .eq('userId', targetUserId)
-        .gte('startedAt', `${date}T00:00:00`)
-        .lte('startedAt', `${date}T23:59:59`)
-
-      const insertData: any = {
-        id: crypto.randomUUID(),
-        userId: targetUserId,
-        status: body.status,
-        startedAt: `${date}T08:00:00`,
-        endedAt: `${date}T17:00:00`,
-        durationMin: 540,
-        note: body.note || `Statut forcé: ${body.status}`,
-        isAdjusted: true,
-        adjustedBy: (session.user as any)?.id,
-        adjustedAt: now.toISOString(),
-        createdAt: now.toISOString(),
-        updatedAt: now.toISOString(),
-      }
-
-      const { data, error } = await supabaseAdmin
-        .from('Attendance')
-        .insert(insertData)
-        .select()
-        .single()
-      if (error) throw error
-      return NextResponse.json(data, { status: 201 })
-    }
-
-    // ✅ CAS 3.5 : DÉPART — avant le CAS 3 pour éviter capture par forceStatus
+    // ✅ CAS 1: DÉPART - DOIT ÊTRE EN PREMIER
     if (body.status === 'DEPART') {
       console.log('🚪 Departure for:', targetUserId)
 
@@ -369,7 +316,66 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, departed: true }, { status: 200 })
     }
 
-    // ✅ CAS 3: Admin force status change (non full-day)
+    // ✅ CAS 2: Clock-out par ID
+    if (body.id && body.endedAt && !body.forceStatus) {
+      console.log('⏰ Clock-out for specific record:', body.id)
+      
+      const { data, error } = await supabaseAdmin
+        .from('Attendance')
+        .update({
+          endedAt: body.endedAt,
+          durationMin: body.durationMin,
+          updatedAt: now.toISOString(),
+        })
+        .eq('id', body.id)
+        .select()
+        .single()
+
+      if (error) {
+        console.error('❌ Clock-out error:', error)
+        return NextResponse.json({ error: error.message }, { status: 400 })
+      }
+      console.log('✅ CAS 2 success:', { id: body.id, durationMin: body.durationMin })
+      return NextResponse.json(data, { status: 200 })
+    }
+
+    // ✅ CAS 3: Full day status (ABSENT, CONGE)
+    if (body.fullDay && body.forceStatus) {
+      console.log('📅 Full day status for:', targetUserId, 'on', body.startedAt)
+      const date = body.startedAt || todayStr()
+
+      await supabaseAdmin
+        .from('Attendance')
+        .delete()
+        .eq('userId', targetUserId)
+        .gte('startedAt', `${date}T00:00:00`)
+        .lte('startedAt', `${date}T23:59:59`)
+
+      const insertData: any = {
+        id: crypto.randomUUID(),
+        userId: targetUserId,
+        status: body.status,
+        startedAt: `${date}T08:00:00`,
+        endedAt: `${date}T17:00:00`,
+        durationMin: 540,
+        note: body.note || `Statut forcé: ${body.status}`,
+        isAdjusted: true,
+        adjustedBy: (session.user as any)?.id,
+        adjustedAt: now.toISOString(),
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+      }
+
+      const { data, error } = await supabaseAdmin
+        .from('Attendance')
+        .insert(insertData)
+        .select()
+        .single()
+      if (error) throw error
+      return NextResponse.json(data, { status: 201 })
+    }
+
+    // ✅ CAS 4: Admin force status change (non full-day)
     if (body.forceStatus) {
       console.log('⚡ Force status for:', targetUserId, '=>', body.status)
 
@@ -437,7 +443,7 @@ export async function POST(request: Request) {
       return NextResponse.json(data, { status: 201 })
     }
 
-    // ✅ CAS 4 : Clock-in ou changement de statut normal (membre)
+    // ✅ CAS 5: Clock-in ou changement de statut normal (membre)
     await closeActiveChild(targetUserId, now)
 
     let openShift = await getOpenShift(targetUserId)

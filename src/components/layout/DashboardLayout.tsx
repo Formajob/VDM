@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import {
   LayoutDashboard, Clock, Settings, FileText,
   LogOut, Users, Zap, Menu, X, FileText as FileIcon,
-  Calendar, Repeat
+  Calendar, Repeat, Mic, Headphones, Package, Edit3
 } from 'lucide-react'
 import { useState } from 'react'
 import { useDemoMode, DemoUser } from '@/hooks/useDemoMode'
@@ -18,7 +18,8 @@ interface NavItem {
   icon: any
   adminOnly?: boolean
   memberOnly?: boolean
-  children?: { label: string; href: string; icon: any }[]
+  jobRoles?: string[] // rôles métier autorisés (si vide = tous)
+  children?: { label: string; href: string; icon: any; adminOnly?: boolean; jobRoles?: string[] }[]
 }
 
 interface DashboardLayoutProps {
@@ -34,32 +35,55 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
   const user: DemoUser | null = (data?.user as DemoUser) || demoUser || null
   const isAdmin = user?.role === 'ADMIN'
-  const isMember = user?.role === 'MEMBER'
+  const jobRole = (user as any)?.jobRole || ''
+
+  // Sous-menus Projets VD selon le rôle
+  const projetsChildren = isAdmin
+    ? [
+        { label: 'Rédaction',  href: '/dashboard/redaction', icon: Edit3 },
+        { label: 'Narration',  href: '/dashboard/narration',  icon: Mic },
+        { label: 'Mixage',     href: '/dashboard/mixage',     icon: Headphones },
+        { label: 'Livraison',  href: '/dashboard/livraison',  icon: Package },
+      ]
+    : jobRole === 'REDACTEUR'
+    ? [{ label: 'Rédaction', href: '/dashboard/redaction', icon: Edit3 }]
+    : jobRole === 'NARRATEUR'
+    ? [{ label: 'Narration', href: '/dashboard/narration', icon: Mic }]
+    : jobRole === 'TECH_SON'
+    ? [{ label: 'Mixage', href: '/dashboard/mixage', icon: Headphones }]
+    : jobRole === 'LIVREUR'
+    ? [{ label: 'Livraison', href: '/dashboard/livraison', icon: Package }]
+    : []
 
   const navigation: NavItem[] = [
     { label: 'Tableau de bord', href: '/dashboard', icon: LayoutDashboard },
-    { 
-      label: 'Présences', 
-      href: '/attendance', 
+    {
+      label: 'Présences',
+      href: '/attendance',
       icon: Clock,
       children: isAdmin ? [
-        { label: 'Historique', href: '/admin/attendance/history', icon: Clock },
-        { label: 'Gestion', href: '/admin/attendance/management', icon: Settings },
-        { label: 'Rapports', href: '/admin/attendance/reports', icon: FileText },
-      ] : undefined
+        { label: 'Historique',  href: '/admin/attendance/history',    icon: Clock },
+        { label: 'Gestion',     href: '/admin/attendance/management', icon: Settings },
+        { label: 'Rapports',    href: '/admin/attendance/reports',    icon: FileText },
+      ] : undefined,
     },
-    { 
-      label: 'Planning', 
-      href: '/planning', 
+    {
+      label: 'Planning',
+      href: '/planning',
       icon: Calendar,
       children: isAdmin ? [
-        { label: 'Gestion Planning', href: '/admin/planning/management', icon: Calendar },
-        { label: 'Validation Swaps', href: '/admin/planning/swaps', icon: Repeat },
-        { label: 'Rapports', href: '/admin/planning/reports', icon: FileText },
-        { label: 'Points Ramassage', href: '/admin/planning/pickup', icon: Users },
-      ] : undefined
+        { label: 'Gestion Planning',   href: '/admin/planning/management', icon: Calendar },
+        { label: 'Validation Swaps',   href: '/admin/planning/swaps',      icon: Repeat },
+        { label: 'Rapports',           href: '/admin/planning/reports',    icon: FileText },
+        { label: 'Points Ramassage',   href: '/admin/planning/pickup',     icon: Users },
+      ] : undefined,
     },
-    { label: 'Projets VD', href: '/projects', icon: FileText },
+    {
+      label: 'Projets VD',
+      href: '/dashboard/redaction', // redirect vers premier sous-menu
+      icon: FileText,
+      children: projetsChildren.length > 0 ? projetsChildren : undefined,
+    },
     { label: 'Administration', href: '/admin', icon: Settings, adminOnly: true },
   ]
 
@@ -73,13 +97,9 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   }
 
   const handleNavClick = (href: string, hasChildren?: boolean) => {
-    if (hasChildren) {
-      // ✅ Ne rien faire au click sur le parent - les sous-menus sont toujours visibles
-      return
-    } else {
-      router.push(href)
-      setSidebarOpen(false)
-    }
+    if (hasChildren) return
+    router.push(href)
+    setSidebarOpen(false)
   }
 
   return (
@@ -107,8 +127,9 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           <nav className="space-y-1 flex-1 overflow-y-auto">
             {navigation.map((item) => {
               if (item.adminOnly && !isAdmin) return null
-              
+
               const isActive = pathname === item.href || pathname?.startsWith(item.href + '/')
+              const isProjectsActive = item.label === 'Projets VD' && pathname?.startsWith('/dashboard/') && pathname !== '/dashboard'
               const hasChildren = item.children && item.children.length > 0
               const Icon = item.icon
 
@@ -118,22 +139,23 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                   <Button
                     variant="ghost"
                     className={`w-full justify-start gap-3 ${
-                      isActive && !hasChildren
+                      (isActive || isProjectsActive) && !hasChildren
                         ? 'bg-gradient-to-r from-indigo-100 to-purple-100 text-indigo-700'
+                        : isProjectsActive
+                        ? 'text-indigo-700 font-medium'
                         : 'hover:bg-indigo-50'
                     }`}
                     onClick={() => handleNavClick(item.href, hasChildren)}
                   >
                     <Icon className="h-4 w-4" />
                     <span className="flex-1 text-left">{item.label}</span>
-                    {/* ✅ FLÈCHES SUPPRIMÉES - Les sous-menus sont toujours visibles */}
                   </Button>
 
-                  {/* ✅ Sous-menu TOUJOURS AFFICHÉ (pas de toggle) */}
+                  {/* Sous-menu toujours visible */}
                   {hasChildren && (
                     <div className="ml-4 mt-1 space-y-1 border-l-2 border-indigo-200 pl-3">
                       {item.children?.map((child) => {
-                        const childIcon = child.icon
+                        const ChildIcon = child.icon
                         const childActive = pathname === child.href
                         return (
                           <Button
@@ -141,8 +163,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                             variant="ghost"
                             size="sm"
                             className={`w-full justify-start gap-2 text-xs h-8 ${
-                              childActive 
-                                ? 'text-indigo-700 bg-indigo-50 font-medium' 
+                              childActive
+                                ? 'text-indigo-700 bg-indigo-50 font-medium'
                                 : 'text-muted-foreground hover:text-indigo-600'
                             }`}
                             onClick={() => {
@@ -150,7 +172,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                               setSidebarOpen(false)
                             }}
                           >
-                            {childIcon && (() => { const Icon = childIcon; return <Icon className="w-3 h-3" /> })()}
+                            <ChildIcon className="w-3 h-3" />
                             {child.label}
                           </Button>
                         )
