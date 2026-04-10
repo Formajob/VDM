@@ -1,5 +1,4 @@
 // src/app/api/projects/dispatch/route.ts
-
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
@@ -7,105 +6,164 @@ import { supabaseAdmin } from '@/lib/supabase'
 
 // GET — projets non encore dispatchés (workflowStep = DISPATCH) + liste rédacteurs
 export async function GET() {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
-  if ((session.user as any).role !== 'ADMIN') return NextResponse.json({ error: 'Admin requis' }, { status: 403 })
+  try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
+    if ((session.user as any).role !== 'ADMIN') return NextResponse.json({ error: 'Admin requis' }, { status: 403 })
 
-  const [{ data: projects }, { data: redacteurs }] = await Promise.all([
-    supabaseAdmin
-      .from('Project')
-      .select('id, name, seriesName, season, episodeNumber, broadcastChannel, projectCode, deadline, startDate, durationMin, pageCount, comment')
-      .eq('workflowStep', 'DISPATCH')
-      .order('deadline', { ascending: true }),
-    supabaseAdmin
-      .from('User')
-      .select('id, name, email, jobRole')
-      .eq('role', 'MEMBER')
-      .eq('jobRole', 'REDACTEUR')
-      .eq('isActive', true)
-      .order('name'),
-  ])
+    const [{ data: projects, error: projectsError }, { data: redacteurs, error: usersError }] = await Promise.all([
+      supabaseAdmin
+        .from('Project')
+        .select('id, name, seriesName, season, episodeNumber, broadcastChannel, projectCode, deadline, startDate, durationMin, pageCount, comment, redacteurId, workflowStep, status')
+        .eq('workflowStep', 'DISPATCH')
+        .order('deadline', { ascending: true }),
+      supabaseAdmin
+        .from('User')
+        .select('id, name, email, jobRole')
+        .eq('role', 'MEMBER')
+        .eq('jobRole', 'REDACTEUR')
+        .eq('isActive', true)
+        .order('name'),
+    ])
 
-  return NextResponse.json({ projects: projects || [], redacteurs: redacteurs || [] })
+    if (projectsError) {
+      console.error('❌ Projects fetch error:', projectsError)
+      return NextResponse.json({ error: projectsError.message }, { status: 500 })
+    }
+    if (usersError) {
+      console.error('❌ Users fetch error:', usersError)
+      return NextResponse.json({ error: usersError.message }, { status: 500 })
+    }
+
+    return NextResponse.json({ 
+      projects: projects || [], 
+      redacteurs: redacteurs || [],
+      count: projects?.length || 0
+    })
+  } catch (e: any) {
+    console.error('❌ GET exception:', e)
+    return NextResponse.json({ error: e.message }, { status: 500 })
+  }
 }
 
 // PATCH — assigner plusieurs projets à un rédacteur
 export async function PATCH(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
-  if ((session.user as any).role !== 'ADMIN') return NextResponse.json({ error: 'Admin requis' }, { status: 403 })
+  try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
+    if ((session.user as any).role !== 'ADMIN') return NextResponse.json({ error: 'Admin requis' }, { status: 403 })
 
-  const { projectIds, redacteurId } = await req.json()
-  if (!projectIds?.length || !redacteurId) return NextResponse.json({ error: 'Données manquantes' }, { status: 400 })
+    const { projectIds, redacteurId } = await req.json()
+    if (!projectIds?.length || !redacteurId) return NextResponse.json({ error: 'Données manquantes' }, { status: 400 })
 
-  const { error } = await supabaseAdmin
-    .from('Project')
-    .update({
-      redacteurId,
-      workflowStep: 'REDACTION',
-      status: 'PAS_ENCORE',
-      updatedAt: new Date().toISOString(),
-    })
-    .in('id', projectIds)
+    console.log('📤 PATCH assign:', { projectIds, redacteurId })
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ success: true, count: projectIds.length })
+    const { error } = await supabaseAdmin
+      .from('Project')
+      .update({
+        redacteurId,
+        workflowStep: 'REDACTION',  // ← Passe en REDACTION seulement après confirmation
+        status: 'PAS_ENCORE',
+        updatedAt: new Date().toISOString(),
+      })
+      .in('id', projectIds)
+
+    if (error) {
+      console.error('❌ PATCH error:', error)
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+    
+    return NextResponse.json({ success: true, count: projectIds.length })
+  } catch (e: any) {
+    console.error('❌ PATCH exception:', e)
+    return NextResponse.json({ error: e.message }, { status: 500 })
+  }
 }
 
-// POST — créer un nouveau projet à dispatcher
+
+// POST — ajouter un projet unique
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
-  if ((session.user as any).role !== 'ADMIN') return NextResponse.json({ error: 'Admin requis' }, { status: 403 })
+  try {
+    const session = await getServerSession(authOptions)
+    console.log('🔹 Session:', session?.user)
+    if (!session?.user) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
+    if ((session.user as any).role !== 'ADMIN') return NextResponse.json({ error: 'Admin requis' }, { status: 403 })
 
-  const body = await req.json()
-  const { name, seriesName, season, episodeNumber, broadcastChannel, projectCode, deadline, startDate, durationMin, pageCount, comment } = body
+    const body = await req.json()
+    console.log('🔹 Body reçu:', body)
 
-  if (!seriesName || !deadline) return NextResponse.json({ error: 'Données manquantes' }, { status: 400 })
+    const { name, seriesName, season, episodeNumber, broadcastChannel, projectCode, deadline, startDate, durationMin, pageCount, comment, redacteurId } = body
 
-  const { data, error } = await supabaseAdmin
-    .from('Project')
-    .insert({
-      name: name || seriesName,
+    if (!seriesName || !deadline) {
+      console.log('❌ Validation échouée:', { seriesName, deadline })
+      return NextResponse.json({ error: 'Série et échéance obligatoires' }, { status: 400 })
+    }
+
+    // ✅ CRITIQUE: Utiliser le nom brut comme ID (pour suivi client)
+    const projectId = name || seriesName
+
+    const insertData = {
+      id: projectId,  // ← ID = nom brut du fichier
+      name: projectId,
       seriesName,
-      season,
-      episodeNumber,
-      broadcastChannel,
-      projectCode,
+      season: season || null,
+      episodeNumber: episodeNumber || null,
+      broadcastChannel: broadcastChannel || null,
+      projectCode: projectCode || null,
       deadline,
-      startDate,
-      durationMin,
-      pageCount,
-      comment,
+      startDate: startDate || null,
+      durationMin: durationMin || null,
+      pageCount: pageCount || null,
+      comment: comment || null,
+      redacteurId: (redacteurId && redacteurId !== 'none') ? redacteurId : null,
       workflowStep: 'DISPATCH',
       status: 'PAS_ENCORE',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-    })
-    .select()
-    .single()
+    }
+    console.log('📤 Insert data:', insertData)
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data)
+    const { data, error } = await supabaseAdmin
+      .from('Project')
+      .insert(insertData)
+      .select()
+      .single()
+
+    console.log('📥 Supabase result:', { data, error })
+
+    if (error) {
+      console.error('❌ Supabase error:', error)
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+    return NextResponse.json(data)
+  } catch (e: any) {
+    console.error('❌ Exception:', e)
+    return NextResponse.json({ error: e.message }, { status: 500 })
+  }
 }
 
 // PUT — modifier les infos d'un projet
 export async function PUT(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
-  if ((session.user as any).role !== 'ADMIN') return NextResponse.json({ error: 'Admin requis' }, { status: 403 })
+  try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
+    if ((session.user as any).role !== 'ADMIN') return NextResponse.json({ error: 'Admin requis' }, { status: 403 })
 
-  const body = await req.json()
-  const { id, ...updates } = body
-  if (!id) return NextResponse.json({ error: 'id requis' }, { status: 400 })
+    const body = await req.json()
+    const { id, ...updates } = body
+    if (!id) return NextResponse.json({ error: 'id requis' }, { status: 400 })
 
-  const { data, error } = await supabaseAdmin
-    .from('Project')
-    .update({ ...updates, updatedAt: new Date().toISOString() })
-    .eq('id', id)
-    .select()
-    .single()
+    const { data, error } = await supabaseAdmin
+      .from('Project')
+      .update({ ...updates, updatedAt: new Date().toISOString() })
+      .eq('id', id)
+      .select()
+      .single()
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json(data)
+  } catch (e: any) {
+    console.error('❌ PUT exception:', e)
+    return NextResponse.json({ error: e.message }, { status: 500 })
+  }
 }

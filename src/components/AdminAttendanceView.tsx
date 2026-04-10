@@ -75,7 +75,7 @@ function fmtDur(min: number): string {
   return h > 0 ? `${h}h${m.toString().padStart(2, '0')}` : `${m}min`
 }
 
-// ✅ CORRECTION : Ne pas ajouter 'Z' pour éviter décalage timezone
+// ✅ CORRECTION : Ajouter 'Z' pour UTC (BDD stocke en UTC)
 function fmtTime(iso: string): string {
   const date = new Date(iso + 'Z')
   return date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
@@ -152,9 +152,9 @@ function RealtimeTab({ users, filterMemberIds, disablePolling }: RealtimeTabProp
         const active = recs.find(r => !r.endedAt) || null
         const departed = !shift && (closedShift != null || (!active && recs.some(r => r.endedAt)))
 
-        // ✅ CORRECTION : Ne pas ajouter 'Z' pour calcul local
+        // ✅ CORRECTION : Ajouter 'Z' pour UTC dans les calculs
         const totalShiftMin = shift
-          ? (now - new Date(shift.startedAt).getTime()) / 60000
+          ? (now - new Date(shift.startedAt + 'Z').getTime()) / 60000
           : closedShift?.durationMin ?? 0
 
         const alerts: string[] = []
@@ -168,8 +168,8 @@ function RealtimeTab({ users, filterMemberIds, disablePolling }: RealtimeTabProp
         // Alerte dépassement pause/lunch (depuis le record enfant actif)
         if (active) {
           const cfg = STATUS_CONFIG[active.status]
-          // ✅ CORRECTION : Ne pas ajouter 'Z'
-          const elapsed = (now - new Date(active.startedAt + 'Z').getTime()) / 60000  // ← AJOUTER 'Z'
+          // ✅ CORRECTION : Ajouter 'Z' pour UTC
+          const elapsed = (now - new Date(active.startedAt + 'Z').getTime()) / 60000
           if (cfg?.limitMin && elapsed > cfg.limitMin) {
             alerts.push(`Dépassement ${cfg.label} +${fmtDur(elapsed - cfg.limitMin)}`)
           }
@@ -190,13 +190,13 @@ function RealtimeTab({ users, filterMemberIds, disablePolling }: RealtimeTabProp
     }
   }, [users, filterMemberIds])
 
-useEffect(() => {
-  fetchAll()
-  if (!disablePolling) {  // ← 1 LIGNE À AJOUTER
-    const iv = setInterval(fetchAll, 30000)
-    return () => clearInterval(iv)
-  }
-}, [fetchAll, disablePolling])  // ← AJOUTER disablePolling ici
+  useEffect(() => {
+    fetchAll()
+    if (!disablePolling) {
+      const iv = setInterval(fetchAll, 30000)
+      return () => clearInterval(iv)
+    }
+  }, [fetchAll, disablePolling])
 
   useEffect(() => {
     const iv = setInterval(() => setTick(t => t + 1), 1000)
@@ -241,8 +241,8 @@ useEffect(() => {
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-4 text-sm">
           <span className="text-indigo-600 font-semibold">
-  {members.filter(m => m.activeRecord || m.shift).length} actifs
-</span>
+            {members.filter(m => m.activeRecord || m.shift).length} actifs
+          </span>
           <span className="text-slate-600">{members.filter(m => m.departed).length} partis</span>
           <span className="text-red-600 font-semibold">{members.filter(m => m.alerts.length > 0).length} alertes</span>
         </div>
@@ -262,10 +262,10 @@ useEffect(() => {
       <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
         {members.map(m => {
           const cfg = m.activeRecord ? STATUS_CONFIG[m.activeRecord.status] : null
-          // ✅ CORRECTION : Ne pas ajouter 'Z'
-         const elapsed = m.activeRecord
-  ? (now - new Date(m.activeRecord.startedAt + 'Z').getTime()) / 60000
-  : 0
+          // ✅ CORRECTION : Ajouter 'Z' pour UTC
+          const elapsed = m.activeRecord
+            ? (now - new Date(m.activeRecord.startedAt + 'Z').getTime()) / 60000
+            : 0
           const isOvertime = cfg?.limitMin && elapsed > cfg.limitMin
 
           return (
@@ -397,38 +397,65 @@ function ManagementTab({ users }: { users: UserItem[] }) {
 
   useEffect(() => { fetchRecords() }, [fetchRecords])
 
-  const handleAdd = async () => {
-    try {
-      const isFullDay = FULLDAY_STATUSES.includes(form.status)
-      const body: any = {
-        status: form.status,
-        targetUserId: selectedUser,
-        forceStatus: true,
-        note: form.note || null,
-      }
-      if (isFullDay) {
-        body.fullDay = true
-        body.startedAt = selectedDate
-      } else {
-        body.startedAt = `${selectedDate}T${form.startedAt}:00`
-        if (form.endedAt) body.endedAt = `${selectedDate}T${form.endedAt}:00`
-      }
-
-      const res = await fetch('/api/attendance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      if (!res.ok) throw new Error()
-      toast.success('Entrée ajoutée')
-      setShowAdd(false)
-      setForm({ status: 'EN_PRODUCTION', startedAt: '', endedAt: '', note: '' })
-      fetchRecords()
-    } catch {
-      toast.error("Erreur lors de l'ajout")
-    }
+  // ✅ FONCTION handleAdd PROPRE - SANS DUPLICATAS
+ const handleAdd = async () => {
+  console.log('🔥 handleAdd - Debug:', { 
+    selectedUser, 
+    selectedDate, 
+    form,
+    forceStatus: true  // ← Vérifier que c'est bien envoyé
+  })
+  // ✅ VALIDATION: Vérifier que selectedUser n'est pas vide
+  if (!selectedUser) {
+    toast.error('Veuillez sélectionner un membre')
+    return
   }
+  
+  try {
+    console.log('🔥 handleAdd - Debug:', { selectedUser, selectedDate, form })
+    
+    const isFullDay = FULLDAY_STATUSES.includes(form.status)
+    const body: any = {
+      status: form.status,
+      targetUserId: selectedUser,  // ← Doit être l'ID du membre
+      forceStatus: true,           // ← CRITIQUE: Doit être true
+      note: form.note || null,
+    }
+    
+    if (isFullDay) {
+      body.fullDay = true
+      body.startedAt = selectedDate
+    } else {
+      // ✅ CRITIQUE: Format ISO avec 'Z' pour UTC
+      body.startedAt = `${selectedDate}T${form.startedAt}:00.000Z`
+      if (form.endedAt) body.endedAt = `${selectedDate}T${form.endedAt}:00.000Z`
+    }
 
+    console.log('📤 handleAdd body:', JSON.stringify(body, null, 2))
+
+    const res = await fetch('/api/attendance', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    
+    if (!res.ok) {
+      const errorData = await res.json()
+      console.error('❌ handleAdd - erreur API:', errorData)
+      throw new Error(errorData.error || 'Erreur serveur')
+    }
+    
+    toast.success('Entrée ajoutée')
+    setShowAdd(false)
+    setForm({ status: 'EN_PRODUCTION', startedAt: '', endedAt: '', note: '' })
+    fetchRecords()
+  } catch (error) {
+    console.error('❌ handleAdd error:', error)
+    toast.error("Erreur lors de l'ajout: " + (error as Error).message)
+  }
+}
+
+  // ✅ FONCTION handleEdit PROPRE - SANS DUPLICATAS
   const handleEdit = async () => {
     if (!editRecord) return
     try {
@@ -444,9 +471,11 @@ function ManagementTab({ users }: { users: UserItem[] }) {
         body.fullDay = true
         body.startedAt = selectedDate
       } else {
-        body.startedAt = `${selectedDate}T${form.startedAt}:00`
-        if (form.endedAt) body.endedAt = `${selectedDate}T${form.endedAt}:00`
+        body.startedAt = `${selectedDate}T${form.startedAt}:00.000Z`
+        if (form.endedAt) body.endedAt = `${selectedDate}T${form.endedAt}:00.000Z`
       }
+
+      console.log('📤 handleEdit body:', body)
 
       const res = await fetch('/api/attendance', {
         method: 'POST',
@@ -457,7 +486,8 @@ function ManagementTab({ users }: { users: UserItem[] }) {
       toast.success('Entrée modifiée')
       setEditRecord(null)
       fetchRecords()
-    } catch {
+    } catch (error) {
+      console.error('❌ handleEdit error:', error)
       toast.error('Erreur lors de la modification')
     }
   }
@@ -471,11 +501,10 @@ function ManagementTab({ users }: { users: UserItem[] }) {
 
   const openEdit = (r: AttendanceRecord) => {
     setEditRecord(r)
-    // ✅ CORRECTION : Ne pas ajouter 'Z'
     setForm({
       status: r.status,
-  startedAt: new Date(r.startedAt + 'Z').toTimeString().slice(0, 5),  // ← AJOUTER 'Z'
-endedAt: r.endedAt ? new Date(r.endedAt + 'Z').toTimeString().slice(0, 5) : '',  // ← AJOUTER 'Z'
+      startedAt: new Date(r.startedAt + 'Z').toTimeString().slice(0, 5),
+      endedAt: r.endedAt ? new Date(r.endedAt + 'Z').toTimeString().slice(0, 5) : '',
       note: r.note || '',
     })
   }
@@ -498,7 +527,10 @@ endedAt: r.endedAt ? new Date(r.endedAt + 'Z').toTimeString().slice(0, 5) : '', 
         </div>
         <div className="space-y-2">
           <Label>Date</Label>
-          <Input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} />
+          <Input type="date" value={selectedDate} onChange={e => {
+    console.log('📅 Date changed:', e.target.value)  // ← DEBUG
+    setSelectedDate(e.target.value)
+  }}  />
         </div>
       </div>
 
@@ -975,26 +1007,26 @@ function ReportsTab({ users }: { users: UserItem[] }) {
 interface AdminAttendanceViewProps {
   showOnlyRealtime?: boolean
   filterMemberIds?: string[]
-  disablePolling?: boolean  // ← AJOUTER ÇA
+  disablePolling?: boolean
 }
 
 export default function AdminAttendanceView({
   showOnlyRealtime = false,
   filterMemberIds,
-  disablePolling  // ← 1 LIGNE À AJOUTER
+  disablePolling
 }: AdminAttendanceViewProps) {
   const [users, setUsers] = useState<UserItem[]>([])
 
   useEffect(() => {
-  fetch('/api/users').then(r => r.json()).then(data => {
-    setUsers(data.map((u: any) => ({ 
-      id: u.id, 
-      name: u.name, 
-      email: u.email, 
-      jobRole: u.jobRole || null 
-    })).filter((u: any) => u.jobRole !== 'ADMIN'))  // ← AJOUTER FILTRE
-  })
-}, [])
+    fetch('/api/users').then(r => r.json()).then(data => {
+      setUsers(data.map((u: any) => ({ 
+        id: u.id, 
+        name: u.name, 
+        email: u.email, 
+        jobRole: u.jobRole || null 
+      })).filter((u: any) => u.jobRole !== 'ADMIN'))  // ← Filtrer les ADMIN
+    })
+  }, [])
 
   return (
     <div className="space-y-6">
@@ -1005,23 +1037,22 @@ export default function AdminAttendanceView({
         </div>
       )}
 
- // Ligne ~475
-{showOnlyRealtime ? (
-  <RealtimeTab users={users} filterMemberIds={filterMemberIds} disablePolling={disablePolling} />
-) : (
-  <Tabs defaultValue="realtime" className="space-y-4">
-    <TabsList>
-      <TabsTrigger value="realtime">Temps réel</TabsTrigger>
-      <TabsTrigger value="history">Historique</TabsTrigger>
-      <TabsTrigger value="management">Gestion</TabsTrigger>
-      <TabsTrigger value="reports">Rapports</TabsTrigger>
-    </TabsList>
-    <TabsContent value="realtime"><RealtimeTab users={users} filterMemberIds={filterMemberIds} disablePolling={disablePolling} /></TabsContent>
-    <TabsContent value="history"><HistoryTab users={users} /></TabsContent>
-    <TabsContent value="management"><ManagementTab users={users} /></TabsContent>
-    <TabsContent value="reports"><ReportsTab users={users} /></TabsContent>
-  </Tabs>
-)}
+      {showOnlyRealtime ? (
+        <RealtimeTab users={users} filterMemberIds={filterMemberIds} disablePolling={disablePolling} />
+      ) : (
+        <Tabs defaultValue="realtime" className="space-y-4">
+          <TabsList>
+            <TabsTrigger value="realtime">Temps réel</TabsTrigger>
+            <TabsTrigger value="history">Historique</TabsTrigger>
+            <TabsTrigger value="management">Gestion</TabsTrigger>
+            <TabsTrigger value="reports">Rapports</TabsTrigger>
+          </TabsList>
+          <TabsContent value="realtime"><RealtimeTab users={users} filterMemberIds={filterMemberIds} disablePolling={disablePolling} /></TabsContent>
+          <TabsContent value="history"><HistoryTab users={users} /></TabsContent>
+          <TabsContent value="management"><ManagementTab users={users} /></TabsContent>
+          <TabsContent value="reports"><ReportsTab users={users} /></TabsContent>
+        </Tabs>
+      )}
     </div>
   )
 }

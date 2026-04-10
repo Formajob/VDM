@@ -26,5 +26,5 @@ git push origin main
  */}
 
  git add .
- git commit -m "fix:  1h de decalage + fermer le tag parent Shift + calcule retard" 
+ git commit -m "fix:  Projet VD" 
  git push  origin main

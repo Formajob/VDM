@@ -214,10 +214,10 @@ function calculatePerformance(record: any, planning: any) {
     }
   }
 
-  const plannedStartTime = new Date(`${recordDate}T${plannedStart}`)
-  const plannedEndTime = new Date(`${recordDate}T${plannedEnd}`)
-  const actualStartTime = new Date(record.startedAt + 'Z')
-  const actualEndTime = record.endedAt ? new Date(record.endedAt + 'Z') : null
+const plannedStartTime = new Date(`${recordDate}T${plannedStart}:00Z`)
+const plannedEndTime = new Date(`${recordDate}T${plannedEnd}:00Z`)
+const actualStartTime = new Date(record.startedAt + 'Z')
+const actualEndTime = record.endedAt ? new Date(record.endedAt + 'Z') : null
 
   let lateMinutes = 0
   let isLate = false
@@ -339,7 +339,37 @@ export async function POST(request: Request) {
       return NextResponse.json(data, { status: 200 })
     }
 
-    // ✅ CAS 3: Full day status (ABSENT, CONGE)
+    // ✅ CAS 3: Manual attendance entry with custom dates (admin adjustment)
+    if (body.isAdjustment && body.startedAt && body.endedAt) {
+      console.log('📝 Manual attendance entry for:', targetUserId, 'from', body.startedAt, 'to', body.endedAt)
+
+      const insertData: any = {
+        id: crypto.randomUUID(),
+        userId: targetUserId,
+        status: body.status,
+        startedAt: body.startedAt,
+        endedAt: body.endedAt,
+        durationMin: body.durationMin,
+        note: body.note || null,
+        isAdjusted: true,
+        adjustedBy: (session.user as any)?.id,
+        adjustedAt: now.toISOString(),
+        adjustmentNote: body.adjustmentNote || null,
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+      }
+
+      const { data, error } = await supabaseAdmin
+        .from('Attendance')
+        .insert(insertData)
+        .select()
+        .single()
+      if (error) throw error
+      console.log('✅ Manual attendance created:', data.id)
+      return NextResponse.json(data, { status: 201 })
+    }
+
+    // ✅ CAS 4: Full day status (ABSENT, CONGE)
     if (body.fullDay && body.forceStatus) {
       console.log('📅 Full day status for:', targetUserId, 'on', body.startedAt)
       const date = body.startedAt || todayStr()
@@ -375,7 +405,7 @@ export async function POST(request: Request) {
       return NextResponse.json(data, { status: 201 })
     }
 
-    // ✅ CAS 4: Admin force status change (non full-day)
+    // ✅ CAS 5: Admin force status change (non full-day)
     if (body.forceStatus) {
       console.log('⚡ Force status for:', targetUserId, '=>', body.status)
 
@@ -443,7 +473,7 @@ export async function POST(request: Request) {
       return NextResponse.json(data, { status: 201 })
     }
 
-    // ✅ CAS 5: Clock-in ou changement de statut normal (membre)
+    // ✅ CAS 6: Clock-in ou changement de statut normal (membre)
     await closeActiveChild(targetUserId, now)
 
     let openShift = await getOpenShift(targetUserId)

@@ -4,13 +4,16 @@ import { useSession, signOut } from 'next-auth/react'
 import { useRouter, usePathname } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+// ✅ AJOUTER TrendingUp
 import {
   LayoutDashboard, Clock, Settings, FileText,
   LogOut, Users, Zap, Menu, X, FileText as FileIcon,
-  Calendar, Repeat, Mic, Headphones, Package, Edit3
+  Calendar, Repeat, Mic, Headphones, Package, Edit3,
+  TrendingUp  // ← AJOUTER CETTE LIGNE
 } from 'lucide-react'
 import { useState } from 'react'
 import { useDemoMode, DemoUser } from '@/hooks/useDemoMode'
+
 
 interface NavItem {
   label: string
@@ -38,54 +41,53 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const jobRole = (user as any)?.jobRole || ''
 
   // Sous-menus Projets VD selon le rôle
-  const projetsChildren = isAdmin
-    ? [
-        { label: 'Rédaction',  href: '/dashboard/redaction', icon: Edit3 },
-        { label: 'Narration',  href: '/dashboard/narration',  icon: Mic },
-        { label: 'Mixage',     href: '/dashboard/mixage',     icon: Headphones },
-        { label: 'Livraison',  href: '/dashboard/livraison',  icon: Package },
-      ]
-    : jobRole === 'REDACTEUR'
-    ? [{ label: 'Rédaction', href: '/dashboard/redaction', icon: Edit3 }]
-    : jobRole === 'NARRATEUR'
-    ? [{ label: 'Narration', href: '/dashboard/narration', icon: Mic }]
-    : jobRole === 'TECH_SON'
-    ? [{ label: 'Mixage', href: '/dashboard/mixage', icon: Headphones }]
-    : jobRole === 'LIVREUR'
-    ? [{ label: 'Livraison', href: '/dashboard/livraison', icon: Package }]
-    : []
+const projetsChildren = isAdmin
+  ? [
+      { label: 'Dashboard', href: '/dashboard/projects', icon: TrendingUp },  // ← NOUVEAU
+      { label: 'Dispatch',   href: '/dashboard/dispatch',   icon: Package },
+      { label: 'Rédaction',  href: '/dashboard/redaction',  icon: Edit3 },
+      { label: 'Studio',     href: '/dashboard/studio',     icon: Headphones },  // ← FUSION Narration+Mixage
+      { label: 'Livraison',  href: '/dashboard/livraison',  icon: Package },
+    ]
+  : jobRole === 'REDACTEUR'
+  ? [{ label: 'Rédaction', href: '/dashboard/redaction', icon: Edit3 }]
+  : jobRole === 'NARRATEUR' || jobRole === 'TECH_SON'  // ← FUSION
+  ? [{ label: 'Studio', href: '/dashboard/studio', icon: Headphones }]
+  : jobRole === 'LIVREUR'
+  ? [{ label: 'Livraison', href: '/dashboard/livraison', icon: Package }]
+  : []
 
   const navigation: NavItem[] = [
-    { label: 'Tableau de bord', href: '/dashboard', icon: LayoutDashboard },
-    {
-      label: 'Présences',
-      href: '/attendance',
-      icon: Clock,
-      children: isAdmin ? [
-        { label: 'Historique',  href: '/admin/attendance/history',    icon: Clock },
-        { label: 'Gestion',     href: '/admin/attendance/management', icon: Settings },
-        { label: 'Rapports',    href: '/admin/attendance/reports',    icon: FileText },
-      ] : undefined,
-    },
-    {
-      label: 'Planning',
-      href: '/planning',
-      icon: Calendar,
-      children: isAdmin ? [
-        { label: 'Gestion Planning',   href: '/admin/planning/management', icon: Calendar },
-        { label: 'Validation Swaps',   href: '/admin/planning/swaps',      icon: Repeat },
-        { label: 'Rapports',           href: '/admin/planning/reports',    icon: FileText },
-        { label: 'Points Ramassage',   href: '/admin/planning/pickup',     icon: Users },
-      ] : undefined,
-    },
-    {
-      label: 'Projets VD',
-      href: '/dashboard/redaction', // redirect vers premier sous-menu
-      icon: FileText,
-      children: projetsChildren.length > 0 ? projetsChildren : undefined,
-    },
-    { label: 'Administration', href: '/admin', icon: Settings, adminOnly: true },
-  ]
+  { label: 'Tableau de bord', href: '/dashboard', icon: LayoutDashboard },
+  {
+    label: 'Présences',
+    href: '/attendance',
+    icon: Clock,
+    children: isAdmin ? [
+      { label: 'Historique',  href: '/admin/attendance/history',    icon: Clock },
+      { label: 'Gestion',     href: '/admin/attendance/management', icon: Settings },
+      { label: 'Rapports',    href: '/admin/attendance/reports',    icon: FileText },
+    ] : undefined,
+  },
+  {
+    label: 'Planning',
+    href: '/planning',
+    icon: Calendar,
+    children: isAdmin ? [
+      { label: 'Gestion Planning',   href: '/admin/planning/management', icon: Calendar },
+      { label: 'Validation Swaps',   href: '/admin/planning/swaps',      icon: Repeat },
+      { label: 'Rapports',           href: '/admin/planning/reports',    icon: FileText },
+      { label: 'Points Ramassage',   href: '/admin/planning/pickup',     icon: Users },
+    ] : undefined,
+  },
+  {
+  label: 'Projets VD',
+  href: '/dashboard/projects',  // ← Redirige vers Dashboard (pas redaction)
+  icon: FileText,
+  children: projetsChildren.length > 0 ? projetsChildren : undefined,
+},
+  { label: 'Administration', href: '/admin', icon: Settings, adminOnly: true },
+]
 
   const handleSignOut = () => {
     if (isDemo) {
