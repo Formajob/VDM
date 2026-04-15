@@ -26,7 +26,7 @@ async function closeActiveChild(userId: string, closeTime: Date) {
     .select('id, startedAt, status, parentShiftId')
     .eq('userId', userId)
     .is('endedAt', null)
-    .neq('status', 'SHIFT')
+    .neq('status', 'SHIFT') 
     .gte('startedAt', `${today}T00:00:00`)
     .order('startedAt', { ascending: false })
     .limit(1)
@@ -340,34 +340,89 @@ export async function POST(request: Request) {
     }
 
     // ✅ CAS 3: Manual attendance entry with custom dates (admin adjustment)
-    if (body.isAdjustment && body.startedAt && body.endedAt) {
-      console.log('📝 Manual attendance entry for:', targetUserId, 'from', body.startedAt, 'to', body.endedAt)
+   if (body.isAdjustment && body.startedAt && body.endedAt) {
+  console.log('📝 Manual attendance entry for:', targetUserId, 'from', body.startedAt, 'to', body.endedAt)
 
-      const insertData: any = {
-        id: crypto.randomUUID(),
-        userId: targetUserId,
-        status: body.status,
-        startedAt: body.startedAt,
-        endedAt: body.endedAt,
-        durationMin: body.durationMin,
-        note: body.note || null,
-        isAdjusted: true,
-        adjustedBy: (session.user as any)?.id,
-        adjustedAt: now.toISOString(),
-        adjustmentNote: body.adjustmentNote || null,
-        createdAt: now.toISOString(),
-        updatedAt: now.toISOString(),
-      }
+  const shiftStartTime = new Date(body.startedAt)
+  const shiftEndTime = new Date(body.endedAt)
+  const date = formatDateLocal(shiftStartTime)
+  const planning = await getDayPlanning(targetUserId, date)
 
-      const { data, error } = await supabaseAdmin
-        .from('Attendance')
-        .insert(insertData)
-        .select()
-        .single()
-      if (error) throw error
-      console.log('✅ Manual attendance created:', data.id)
-      return NextResponse.json(data, { status: 201 })
+  let isLate = false
+  let lateMinutes = 0
+  let isEarlyDeparture = false
+  let earlyMinutes = 0
+
+  if (planning) {
+    const plannedStart = new Date(`${date}T${planning.startTime}:00Z`)
+    const plannedEnd = new Date(`${date}T${planning.endTime}:00Z`)
+    
+    const diffStart = shiftStartTime.getTime() - plannedStart.getTime()
+    if (diffStart > TOLERANCE_MINUTES * 60000) {
+      isLate = true
+      lateMinutes = Math.round(diffStart / 60000)
     }
+
+    const diffEnd = plannedEnd.getTime() - shiftEndTime.getTime()
+    if (diffEnd > TOLERANCE_MINUTES * 60000) {
+      isEarlyDeparture = true
+      earlyMinutes = Math.round(diffEnd / 60000)
+    }
+  }
+
+  // Créer le SHIFT parent
+  const { data: shiftData, error: shiftError } = await supabaseAdmin
+    .from('Attendance')
+    .insert({
+      id: crypto.randomUUID(),
+      userId: targetUserId,
+      status: 'SHIFT',
+      startedAt: body.startedAt,
+      endedAt: body.endedAt,
+      durationMin: body.durationMin,
+      isLate,
+      lateMinutes: isLate ? lateMinutes : 0,
+      isEarlyDeparture,
+      earlyMinutes: isEarlyDeparture ? earlyMinutes : 0,
+      plannedShiftStart: planning?.startTime || null,
+      plannedShiftEnd: planning?.endTime || null,
+      isAdjusted: true,
+      adjustedBy: (session.user as any)?.id,
+      adjustedAt: now.toISOString(),
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    })
+    .select()
+    .single()
+
+  if (shiftError) throw shiftError
+
+  // Créer le record enfant
+  const { data, error } = await supabaseAdmin
+    .from('Attendance')
+    .insert({
+      id: crypto.randomUUID(),
+      userId: targetUserId,
+      status: body.status,
+      startedAt: body.startedAt,
+      endedAt: body.endedAt,
+      durationMin: body.durationMin,
+      note: body.note || null,
+      parentShiftId: shiftData.id,
+      isAdjusted: true,
+      adjustedBy: (session.user as any)?.id,
+      adjustedAt: now.toISOString(),
+      adjustmentNote: body.adjustmentNote || null,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    })
+    .select()
+    .single()
+
+  if (error) throw error
+  console.log('✅ Manual SHIFT + child created:', shiftData.id, data.id)
+  return NextResponse.json(data, { status: 201 })
+}
 
     // ✅ CAS 4: Full day status (ABSENT, CONGE)
     if (body.fullDay && body.forceStatus) {

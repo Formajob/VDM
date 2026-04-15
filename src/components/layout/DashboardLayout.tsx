@@ -4,16 +4,14 @@ import { useSession, signOut } from 'next-auth/react'
 import { useRouter, usePathname } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-// ✅ AJOUTER TrendingUp
 import {
   LayoutDashboard, Clock, Settings, FileText,
   LogOut, Users, Zap, Menu, X, FileText as FileIcon,
   Calendar, Repeat, Mic, Headphones, Package, Edit3,
-  TrendingUp  // ← AJOUTER CETTE LIGNE
+  TrendingUp
 } from 'lucide-react'
 import { useState } from 'react'
 import { useDemoMode, DemoUser } from '@/hooks/useDemoMode'
-
 
 interface NavItem {
   label: string
@@ -21,7 +19,7 @@ interface NavItem {
   icon: any
   adminOnly?: boolean
   memberOnly?: boolean
-  jobRoles?: string[] // rôles métier autorisés (si vide = tous)
+  jobRoles?: string[]
   children?: { label: string; href: string; icon: any; adminOnly?: boolean; jobRoles?: string[] }[]
 }
 
@@ -37,57 +35,66 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   const user: DemoUser | null = (data?.user as DemoUser) || demoUser || null
+  
   const isAdmin = user?.role === 'ADMIN'
+  const isMember = user?.role === 'MEMBER'  // ✅ AJOUTÉ: Variable isMember
   const jobRole = (user as any)?.jobRole || ''
 
   // Sous-menus Projets VD selon le rôle
-const projetsChildren = isAdmin
+ const projetsChildren = isAdmin
   ? [
-      { label: 'Dashboard', href: '/dashboard/projects', icon: TrendingUp },  // ← NOUVEAU
+      { label: 'Dashboard', href: '/dashboard/projects', icon: TrendingUp },
       { label: 'Dispatch',   href: '/dashboard/dispatch',   icon: Package },
       { label: 'Rédaction',  href: '/dashboard/redaction',  icon: Edit3 },
-      { label: 'Studio',     href: '/dashboard/studio',     icon: Headphones },  // ← FUSION Narration+Mixage
+      { label: 'Studio',     href: '/dashboard/studio',     icon: Headphones }, // ← AJOUTER
       { label: 'Livraison',  href: '/dashboard/livraison',  icon: Package },
     ]
   : jobRole === 'REDACTEUR'
   ? [{ label: 'Rédaction', href: '/dashboard/redaction', icon: Edit3 }]
-  : jobRole === 'NARRATEUR' || jobRole === 'TECH_SON'  // ← FUSION
-  ? [{ label: 'Studio', href: '/dashboard/studio', icon: Headphones }]
+  : jobRole === 'NARRATEUR' || jobRole === 'TECH_SON' || jobRole === 'LIVREUR' || jobRole === 'ADMIN'
+  ? [{ label: 'Studio', href: '/dashboard/studio', icon: Headphones }] // ← MODIFIER
   : jobRole === 'LIVREUR'
   ? [{ label: 'Livraison', href: '/dashboard/livraison', icon: Package }]
   : []
 
+  // ✅ CORRECTION: Navigation avec UN SEUL item Performance
   const navigation: NavItem[] = [
-  { label: 'Tableau de bord', href: '/dashboard', icon: LayoutDashboard },
-  {
-    label: 'Présences',
-    href: '/attendance',
-    icon: Clock,
-    children: isAdmin ? [
-      { label: 'Historique',  href: '/admin/attendance/history',    icon: Clock },
-      { label: 'Gestion',     href: '/admin/attendance/management', icon: Settings },
-      { label: 'Rapports',    href: '/admin/attendance/reports',    icon: FileText },
-    ] : undefined,
-  },
-  {
-    label: 'Planning',
-    href: '/planning',
-    icon: Calendar,
-    children: isAdmin ? [
-      { label: 'Gestion Planning',   href: '/admin/planning/management', icon: Calendar },
-      { label: 'Validation Swaps',   href: '/admin/planning/swaps',      icon: Repeat },
-      { label: 'Rapports',           href: '/admin/planning/reports',    icon: FileText },
-      { label: 'Points Ramassage',   href: '/admin/planning/pickup',     icon: Users },
-    ] : undefined,
-  },
-  {
-  label: 'Projets VD',
-  href: '/dashboard/projects',  // ← Redirige vers Dashboard (pas redaction)
-  icon: FileText,
-  children: projetsChildren.length > 0 ? projetsChildren : undefined,
-},
-  { label: 'Administration', href: '/admin', icon: Settings, adminOnly: true },
-]
+    { label: 'Tableau de bord', href: '/dashboard', icon: LayoutDashboard },
+    {
+      label: 'Présences',
+      href: '/attendance',
+      icon: Clock,
+      children: isAdmin ? [
+        { label: 'Historique',  href: '/admin/attendance/history',    icon: Clock },
+        { label: 'Gestion',     href: '/admin/attendance/management', icon: Settings },
+        { label: 'Rapports',    href: '/admin/attendance/reports',    icon: FileText },
+      ] : undefined,
+    },
+    {
+      label: 'Planning',
+      href: '/planning',
+      icon: Calendar,
+      children: isAdmin ? [
+        { label: 'Gestion Planning',   href: '/admin/planning/management', icon: Calendar },
+        { label: 'Validation Swaps',   href: '/admin/planning/swaps',      icon: Repeat },
+        { label: 'Rapports',           href: '/admin/planning/reports',    icon: FileText },
+      ] : undefined,
+    },
+    {
+      label: 'Projets VD',
+      href: '/dashboard/projects',
+      icon: FileText,
+      children: projetsChildren.length > 0 ? projetsChildren : undefined,
+    },
+    // ✅ CORRECTION: UN SEUL item Performance avec routing conditionnel
+    {
+      label: 'Performance',
+      href: isMember ? '/dashboard/performance/member' : '/dashboard/performance',
+      icon: TrendingUp,
+      adminOnly: false,  // Accessible par tous
+    },
+    { label: 'Administration', href: '/admin', icon: Settings, adminOnly: true },
+  ]
 
   const handleSignOut = () => {
     if (isDemo) {
@@ -129,6 +136,8 @@ const projetsChildren = isAdmin
           <nav className="space-y-1 flex-1 overflow-y-auto">
             {navigation.map((item) => {
               if (item.adminOnly && !isAdmin) return null
+              if (item.memberOnly && !isMember) return null
+              if (item.jobRoles && !item.jobRoles.includes(jobRole)) return null
 
               const isActive = pathname === item.href || pathname?.startsWith(item.href + '/')
               const isProjectsActive = item.label === 'Projets VD' && pathname?.startsWith('/dashboard/') && pathname !== '/dashboard'

@@ -1,12 +1,6 @@
 // src/app/dashboard/projects/page.tsx
 'use client'
-// ✅ AJOUTER ces imports
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select'
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
-} from '@/components/ui/dialog'
+
 import { useEffect, useState, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
@@ -17,8 +11,15 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
 import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from '@/components/ui/dialog'
+import {
   Package, Search, AlertTriangle, CheckCircle, Clock, TrendingUp,
-  FileText, X, Filter, Download, ArrowRight
+  FileText, X, Filter, Download, Edit3, Mic, Headphones, Users,
+  Calendar, BarChart3, Pencil
 } from 'lucide-react'
 
 interface Stats {
@@ -46,8 +47,60 @@ interface SearchResult {
   workflowStep: string
   deadline: string
   durationMin: number | null
+  [key: string]: any
 }
 
+// ─── Graphique Mensuel ────────────────────────────────────
+function MonthlyChart({ monthlyStats, year }: { 
+  monthlyStats: Array<{ month: string; count: number; minutes: number }>
+  year: string 
+}) {
+  const maxMinutes = Math.max(...monthlyStats.map(s => s.minutes), 1)
+  
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-medium flex items-center gap-2">
+          <BarChart3 className="w-4 h-4 text-indigo-600" />
+          Production par mois • {year}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {monthlyStats.length === 0 ? (
+          <p className="text-sm text-slate-400 text-center py-4">Aucune donnée pour {year}</p>
+        ) : (
+          <div className="space-y-3">
+            {monthlyStats.map(stat => {
+              const monthName = new Date(stat.month + '-01').toLocaleDateString('fr-FR', { month: 'short' })
+              const height = (stat.minutes / maxMinutes) * 100
+              return (
+                <div key={stat.month} className="flex items-center gap-3">
+                  <span className="text-xs text-slate-500 w-10">{monthName}</span>
+                  <div className="flex-1 h-6 bg-slate-100 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-indigo-500 rounded-full transition-all"
+                      style={{ width: `${height}%` }}
+                    />
+                  </div>
+                  <span className="text-xs font-medium text-slate-700 w-16 text-right">
+                    {stat.minutes} min
+                  </span>
+                  <span className="text-xs text-slate-400 w-8 text-right">
+                    ({stat.count})
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+
+
+// ─── Page Dashboard Principale ────────────────────────────
 export default function ProjectsDashboard() {
   const { data: sessionData, status } = useSession()
   const router = useRouter()
@@ -58,6 +111,14 @@ export default function ProjectsDashboard() {
   const [searchResults, setSearchResults] = useState<SearchResult[]>([])
   const [showSearchModal, setShowSearchModal] = useState(false)
   const [period, setPeriod] = useState('month')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
+  const [showYearView, setShowYearView] = useState(false)
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString())
+  const [monthlyStats, setMonthlyStats] = useState<Array<{ month: string; count: number; minutes: number }>>([])
+
+  const [editingSearchResult, setEditingSearchResult] = useState<any>(null)
+  const [redacteurs, setRedacteurs] = useState<any[]>([])
 
   const user = sessionData?.user as any
   const isAdmin = user?.role === 'ADMIN'
@@ -71,16 +132,25 @@ export default function ProjectsDashboard() {
     try {
       setLoading(true)
       const params = new URLSearchParams({ period })
+      if (period === 'custom' && dateFrom && dateTo) {
+        params.set('dateFrom', dateFrom)
+        params.set('dateTo', dateTo)
+      }
+      if (period === 'year') {
+        params.set('year', selectedYear)
+      }
       const res = await fetch(`/api/projects/dashboard?${params.toString()}`)
       const data = await res.json()
       setStats(data.stats)
       setAlerts(data.alerts)
+  
+      setMonthlyStats(data.monthlyStats || [])
     } catch {
       toast.error('Erreur de chargement du dashboard')
     } finally {
       setLoading(false)
     }
-  }, [period])
+  }, [period, dateFrom, dateTo, selectedYear])
 
   useEffect(() => { if (user) fetchDashboard() }, [user, fetchDashboard])
 
@@ -159,15 +229,47 @@ export default function ProjectsDashboard() {
           <Button onClick={handleSearch} className="bg-indigo-600 hover:bg-indigo-700 gap-2">
             <Search className="w-4 h-4" />Rechercher
           </Button>
-          <Select value={period} onValueChange={setPeriod}>
+          
+          {/* Sélecteur période */}
+          <Select value={period} onValueChange={(v) => { setPeriod(v); setShowYearView(v === 'year') }}>
             <SelectTrigger className="w-40 h-10">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value="today">Aujourd'hui</SelectItem>
               <SelectItem value="week">Cette semaine</SelectItem>
               <SelectItem value="month">Ce mois</SelectItem>
+              <SelectItem value="year">Vue annuelle</SelectItem>
+              <SelectItem value="custom">Personnalisé</SelectItem>
             </SelectContent>
           </Select>
+          
+          {/* Année pour vue annuelle */}
+          {showYearView && (
+            <Input 
+              type="number" 
+              value={selectedYear} 
+              onChange={e => setSelectedYear(e.target.value)}
+              className="w-24 h-10"
+              min="2020"
+              max="2030"
+            />
+          )}
+          
+          {/* Dates personnalisées */}
+          {period === 'custom' && (
+            <>
+              <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="w-40 h-10" />
+              <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="w-40 h-10" />
+            </>
+          )}
+          
+          {/* Bouton appliquer */}
+          {(period === 'custom' || showYearView) && (
+            <Button onClick={fetchDashboard} variant="outline" size="sm" className="h-10">
+              <Filter className="w-4 h-4" />
+            </Button>
+          )}
         </div>
 
         {/* Stats Cards */}
@@ -221,6 +323,13 @@ export default function ProjectsDashboard() {
           </Card>
         </div>
 
+        {/* ✅ NOUVEAU: Graphique mensuel si vue annuelle */}
+        {showYearView && monthlyStats.length > 0 && (
+          <MonthlyChart monthlyStats={monthlyStats} year={selectedYear} />
+        )}
+
+     
+
         {/* Alertes */}
         <div className="grid lg:grid-cols-3 gap-4">
           <Card className="border-red-200">
@@ -240,6 +349,9 @@ export default function ProjectsDashboard() {
                       <Badge variant="destructive" className="text-[10px]">{a.deadline}</Badge>
                     </div>
                   ))}
+                  {alerts.retard.length > 5 && (
+                    <p className="text-xs text-slate-400 text-center">+{alerts.retard.length - 5} autres</p>
+                  )}
                 </div>
               )}
             </CardContent>
@@ -262,6 +374,9 @@ export default function ProjectsDashboard() {
                       <Badge className="bg-orange-100 text-orange-700 text-[10px]">{a.deadline}</Badge>
                     </div>
                   ))}
+                  {alerts.echeanceProche.length > 5 && (
+                    <p className="text-xs text-slate-400 text-center">+{alerts.echeanceProche.length - 5} autres</p>
+                  )}
                 </div>
               )}
             </CardContent>
@@ -284,6 +399,9 @@ export default function ProjectsDashboard() {
                       <span className="text-slate-400">{a.status}</span>
                     </div>
                   ))}
+                  {alerts.retourQC.length > 5 && (
+                    <p className="text-xs text-slate-400 text-center">+{alerts.retourQC.length - 5} autres</p>
+                  )}
                 </div>
               )}
             </CardContent>
@@ -314,6 +432,7 @@ export default function ProjectsDashboard() {
                         <th className="text-left py-2 px-3 font-medium text-slate-500">Échéance</th>
                         <th className="text-left py-2 px-3 font-medium text-slate-500">Étape</th>
                         <th className="text-left py-2 px-3 font-medium text-slate-500">Durée</th>
+                        <th className="py-2 px-3 w-8"></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -332,6 +451,19 @@ export default function ProjectsDashboard() {
                             <Badge className={`${getStepColor(p.workflowStep)} text-xs border-0`}>{p.workflowStep}</Badge>
                           </td>
                           <td className="py-2 px-3 text-slate-600">{p.durationMin ? `${p.durationMin} min` : '—'}</td>
+                          <td className="py-2 px-3 text-right">
+                            <Button 
+                              size="sm" 
+                              variant="ghost" 
+                              className="h-7 w-7 p-0 hover:bg-indigo-100"
+                              onClick={() => {
+                                setEditingSearchResult(p)
+                                setShowSearchModal(false)
+                              }}
+                            >
+                              <Pencil className="w-3.5 h-3.5 text-indigo-500" />
+                            </Button>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -347,6 +479,77 @@ export default function ProjectsDashboard() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* ✅ Modal édition depuis recherche */}
+        {editingSearchResult && (
+          <Dialog open onOpenChange={() => setEditingSearchResult(null)}>
+            <DialogContent className="max-w-xl max-h-[85vh] overflow-auto">
+              <DialogHeader>
+                <DialogTitle>Modifier le projet</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 py-2">
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Série / Titre</label>
+                  <Input 
+                    value={editingSearchResult.seriesName || ''} 
+                    onChange={e => setEditingSearchResult({...editingSearchResult, seriesName: e.target.value})} 
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium">Échéance</label>
+                    <Input 
+                      type="date"
+                      value={editingSearchResult.deadline ? editingSearchResult.deadline.split('T')[0] : ''} 
+                      onChange={e => setEditingSearchResult({...editingSearchResult, deadline: e.target.value})} 
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium">Durée (min)</label>
+                    <Input 
+                      type="number"
+                      value={editingSearchResult.durationMin || ''} 
+                      onChange={e => setEditingSearchResult({...editingSearchResult, durationMin: parseInt(e.target.value)})} 
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Statut</label>
+                  <Select 
+                    value={editingSearchResult.status} 
+                    onValueChange={v => setEditingSearchResult({...editingSearchResult, status: v})}
+                  >
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="PAS_ENCORE">Pas encore</SelectItem>
+                      <SelectItem value="EN_COURS">En cours</SelectItem>
+                      <SelectItem value="FAIT">Fait</SelectItem>
+                      <SelectItem value="LIVRE">Livré</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setEditingSearchResult(null)}>Annuler</Button>
+                <Button onClick={async () => {
+                  try {
+                    const res = await fetch('/api/projects/dispatch', {
+                      method: 'PUT',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify(editingSearchResult),
+                    })
+                    if (!res.ok) throw new Error()
+                    toast.success('Projet mis à jour')
+                    setEditingSearchResult(null)
+                    fetchDashboard()
+                  } catch {
+                    toast.error('Erreur lors de la modification')
+                  }
+                }}>Enregistrer</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
     </DashboardLayout>
   )

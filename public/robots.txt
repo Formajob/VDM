@@ -20,7 +20,7 @@ Allow: /
  
 cd C:\Users\User18\Desktop\VDM
 git add .
-git commit -m "feat: correction : back up pour prod : statuts melangés  "
+git commit -m "feat: performance + studio+ modif planning  "
 git push origin main
 
  */}

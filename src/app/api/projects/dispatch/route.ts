@@ -37,8 +37,7 @@ export async function GET() {
 
     return NextResponse.json({ 
       projects: projects || [], 
-      redacteurs: redacteurs || [],
-      count: projects?.length || 0
+      redacteurs: redacteurs || [] 
     })
   } catch (e: any) {
     console.error('❌ GET exception:', e)
@@ -56,13 +55,11 @@ export async function PATCH(req: NextRequest) {
     const { projectIds, redacteurId } = await req.json()
     if (!projectIds?.length || !redacteurId) return NextResponse.json({ error: 'Données manquantes' }, { status: 400 })
 
-    console.log('📤 PATCH assign:', { projectIds, redacteurId })
-
     const { error } = await supabaseAdmin
       .from('Project')
       .update({
         redacteurId,
-        workflowStep: 'REDACTION',  // ← Passe en REDACTION seulement après confirmation
+        workflowStep: 'REDACTION',
         status: 'PAS_ENCORE',
         updatedAt: new Date().toISOString(),
       })
@@ -80,32 +77,27 @@ export async function PATCH(req: NextRequest) {
   }
 }
 
-
 // POST — ajouter un projet unique
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
-    console.log('🔹 Session:', session?.user)
     if (!session?.user) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
     if ((session.user as any).role !== 'ADMIN') return NextResponse.json({ error: 'Admin requis' }, { status: 403 })
 
     const body = await req.json()
-    console.log('🔹 Body reçu:', body)
-
     const { name, seriesName, season, episodeNumber, broadcastChannel, projectCode, deadline, startDate, durationMin, pageCount, comment, redacteurId } = body
 
     if (!seriesName || !deadline) {
-      console.log('❌ Validation échouée:', { seriesName, deadline })
       return NextResponse.json({ error: 'Série et échéance obligatoires' }, { status: 400 })
     }
 
-    // ✅ CRITIQUE: Utiliser le nom brut comme ID (pour suivi client)
+    // ✅ ID = nom brut du fichier (pour suivi client)
     const projectId = name || seriesName
 
     const insertData = {
-      id: projectId,  // ← ID = nom brut du fichier
+      id: projectId,
       name: projectId,
-      seriesName,
+      seriesName: seriesName || '',
       season: season || null,
       episodeNumber: episodeNumber || null,
       broadcastChannel: broadcastChannel || null,
@@ -116,12 +108,11 @@ export async function POST(req: NextRequest) {
       pageCount: pageCount || null,
       comment: comment || null,
       redacteurId: (redacteurId && redacteurId !== 'none') ? redacteurId : null,
-      workflowStep: 'DISPATCH',
+      workflowStep: 'DISPATCH',  // ✅ TOUS commencent en DISPATCH
       status: 'PAS_ENCORE',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }
-    console.log('📤 Insert data:', insertData)
 
     const { data, error } = await supabaseAdmin
       .from('Project')
@@ -129,15 +120,13 @@ export async function POST(req: NextRequest) {
       .select()
       .single()
 
-    console.log('📥 Supabase result:', { data, error })
-
     if (error) {
       console.error('❌ Supabase error:', error)
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
     return NextResponse.json(data)
   } catch (e: any) {
-    console.error('❌ Exception:', e)
+    console.error('❌ POST exception:', e)
     return NextResponse.json({ error: e.message }, { status: 500 })
   }
 }

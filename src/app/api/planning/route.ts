@@ -23,7 +23,7 @@ export async function GET(request: Request) {
       query = query.eq('weekstart', weekStart)
     }
 
-    const {  data, error } = await query
+    const { data, error } = await query
     if (error) {
       console.error('❌ Planning query error:', error)
       throw error
@@ -35,9 +35,9 @@ export async function GET(request: Request) {
       const userIds = [...new Set(data.map((p: any) => p.userid))]
       console.log('🔍 Fetching users:', userIds)
       
-      const {  data: usersData, error: userError } = await supabaseAdmin
+      const { data: usersData, error: userError } = await supabaseAdmin
         .from('User')
-        .select('id, name, email')
+        .select('id, name, email, jobRole')
         .in('id', userIds)
       
       if (userError) {
@@ -57,7 +57,7 @@ export async function GET(request: Request) {
         console.log('📌 Planning for', p.userid, ':', user ? user.name : 'NOT FOUND')
         return {
           ...p,
-          user: user || { name: 'Membre', email: '' }
+          user: user || { name: 'Membre', email: '', jobRole: '' }
         }
       })
       
@@ -81,7 +81,7 @@ export async function POST(request: Request) {
     const body = await request.json()
     const now = new Date()
 
-    const {  data, error } = await supabaseAdmin
+    const { data, error } = await supabaseAdmin
       .from('Planning')
       .insert({
         id: nanoid(),
@@ -106,5 +106,104 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error('Error creating planning:', error)
     return NextResponse.json({ error: 'Failed to create planning' }, { status: 500 })
+  }
+}
+
+// ✅ NOUVELLE ROUTE PUT POUR METTRE À JOUR LE PLANNING
+export async function PUT(request: Request) {
+  try {
+    const session = await getServerSession(authOptions)
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+    const body = await request.json()
+    const now = new Date()
+
+    console.log('📝 Updating planning:', body)
+
+    // Chercher le planning existant pour cette semaine et cet utilisateur
+    const { data: existingPlanning, error: findError } = await supabaseAdmin
+      .from('Planning')
+      .select('*')
+      .eq('userid', body.userid)
+      .eq('weekstart', body.weekstart)
+      .single()
+
+    if (findError && findError.code !== 'PGRST116') { // PGRST116 = not found
+      console.error('❌ Error finding existing planning:', findError)
+      throw findError
+    }
+
+    // Si le planning existe, on le met à jour
+    if (existingPlanning) {
+      console.log('🔄 Updating existing planning:', existingPlanning.id)
+      
+      // Construire l'objet de mise à jour avec seulement les champs modifiés
+      const updateData: any = {
+        updatedat: now.toISOString(),
+      }
+
+      // Copier tous les jours depuis l'existing planning
+      const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+      days.forEach(day => {
+        updateData[day] = existingPlanning[day]
+      })
+
+      // Appliquer les modifications du body
+      days.forEach(day => {
+        if (body[day] !== undefined) {
+          updateData[day] = body[day]
+        }
+      })
+
+      const { data, error } = await supabaseAdmin
+        .from('Planning')
+        .update(updateData)
+        .eq('id', existingPlanning.id)
+        .select()
+        .single()
+
+      if (error) {
+        console.error('❌ Update error:', error)
+        throw error
+      }
+
+      console.log('✅ Planning updated successfully')
+      return NextResponse.json(data, { status: 200 })
+    } 
+    // Sinon, on crée un nouveau planning
+    else {
+      console.log('➕ Creating new planning for user:', body.userid)
+      
+      const { data, error } = await supabaseAdmin
+        .from('Planning')
+        .insert({
+          id: nanoid(),
+          userid: body.userid,
+          weekstart: body.weekstart,
+          weekend: body.weekend,
+          monday: body.monday || null,
+          tuesday: body.tuesday || null,
+          wednesday: body.wednesday || null,
+          thursday: body.thursday || null,
+          friday: body.friday || null,
+          saturday: body.saturday || null,
+          sunday: body.sunday || null,
+          createdat: now.toISOString(),
+          updatedat: now.toISOString(),
+        })
+        .select()
+        .single()
+
+      if (error) {
+        console.error('❌ Insert error:', error)
+        throw error
+      }
+
+      console.log('✅ New planning created successfully')
+      return NextResponse.json(data, { status: 201 })
+    }
+  } catch (error) {
+    console.error('❌ Error in PUT /api/planning:', error)
+    return NextResponse.json({ error: 'Failed to update planning' }, { status: 500 })
   }
 }

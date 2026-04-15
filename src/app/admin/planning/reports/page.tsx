@@ -100,7 +100,7 @@ function formatShiftDisplay(dayData: PlanningDayRaw | null): string {
 }
 
 function getDayDisplay(dayData: PlanningDayRaw | null) {
-  if (!dayData?.shiftType || dayData.shiftType === 'OFF') {
+  if (!dayData || dayData.shiftType === 'OFF') {
     return { text: 'OFF', class: STATUS_COLORS.OFF }
   }
   
@@ -151,44 +151,46 @@ export default function AdminPlanningReportsPage() {
     if (!isAdmin && !isDemo) router.push('/dashboard')
   }, [status, router, isDemo, isAdmin])
 
-  const fetchMembers = useCallback(async () => {
-    const res = await fetch('/api/users')
-    if (res.ok) {
-      const users = await res.json()
-      const membersOnly = users.filter((u: any) => u.role === 'MEMBER')
-      setMembers(membersOnly)
-    }
-  }, [])
+  const fetchMembers = async () => {
+  const res = await fetch('/api/users')
+  if (res.ok) {
+    const users = await res.json()
+    const membersOnly = users.filter((u: any) => u.role === 'MEMBER')
+    setMembers(membersOnly)
+    return membersOnly
+  }
+  return []
+}
 
-  const fetchPlanningData = useCallback(async () => {
-    const res = await fetch(`/api/planning?weekStart=${currentWeek.start}&all=true`)
-    if (res.ok) {
-      const planningData = await res.json()
-      
-      // ✅ FUSIONNER avec les infos utilisateurs pour avoir jobRole
-      const membersMap = new Map(members.map(m => [m.id, m]))
-      const enrichedData = planningData.map((p: any) => ({
-        ...p,
-        user: membersMap.get(p.userid) || p.user
-      }))
-      
-      setPlanningData(enrichedData)
-    }
-  }, [currentWeek.start, members])
+const fetchPlanningData = async (membersList: typeof members) => {
+  const res = await fetch(`/api/planning?weekStart=${currentWeek.start}&all=true`)
+  if (res.ok) {
+    const planningData = await res.json()
+    const membersMap = new Map(membersList.map(m => [m.id, m]))
+    const enrichedData = planningData.map((p: any) => ({
+      ...p,
+      user: membersMap.get(p.userid) || p.user
+    }))
+    setPlanningData(enrichedData)
+  }
+}
+  const fetchSwapData = async () => {
+  const res = await fetch('/api/swap-request?type=admin')
+  if (res.ok) {
+    const data = await res.json()
+    setSwapData(data)
+  }
+}
 
-  const fetchSwapData = useCallback(async () => {
-    const res = await fetch('/api/swap-request?type=admin')
-    if (res.ok) {
-      const data = await res.json()
-      setSwapData(data)
-    }
-  }, [])
+useEffect(() => {
+  const loadData = async () => {
+    const members = await fetchMembers()
+    await fetchPlanningData(members || [])
+    await fetchSwapData()
+  }
+  loadData()
+}, [currentWeek.start])
 
-  useEffect(() => {
-    fetchMembers()
-    fetchPlanningData()
-    fetchSwapData()
-  }, [fetchMembers, fetchPlanningData, fetchSwapData])
 
   const handlePrevWeek = () => {
     const newSunday = new Date(currentWeek.sunday)

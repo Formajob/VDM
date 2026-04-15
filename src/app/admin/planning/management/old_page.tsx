@@ -103,7 +103,6 @@ export default function AdminPlanningManagementPage() {
   const [editStartTime, setEditStartTime] = useState('08:00')
   const [editEndTime, setEditEndTime] = useState('17:00')
   const [editShiftType, setEditShiftType] = useState<PlanningDayRaw['shiftType']>('NORMAL')
-  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     if (!isDemo && status === 'unauthenticated') router.push('/login')
@@ -124,7 +123,7 @@ export default function AdminPlanningManagementPage() {
     const res = await fetch(`/api/planning?weekStart=${currentWeek.start}&all=true`)
     if (res.ok) {
       const data = await res.json()
-      console.log('📊 Planning data received:', data)
+      console.log('📊 Planning data received:', data) // Debug log
       setTeamPlanning(data)
     }
     setLoading(false)
@@ -155,19 +154,15 @@ export default function AdminPlanningManagementPage() {
     setEditOpen(true)
   }
 
-  // ✅ HANDLER CORRIGÉ avec méthode PUT et meilleure gestion des erreurs
   const handleSaveEdit = async () => {
     if (!editingCell) return
     
-    setSaving(true)
-    
-    try {
-      // ✅ Construire l'objet au format BDD
-      const dayData: PlanningDayRaw = editShiftType === 'NORMAL' || editShiftType === 'NIGHT'
-        ? { startTime: editStartTime, endTime: editEndTime, shiftType: editShiftType }
-        : { shiftType: editShiftType }
+    // ✅ Construire l'objet au format BDD
+    const dayData: PlanningDayRaw = editShiftType === 'NORMAL' || editShiftType === 'NIGHT'
+      ? { startTime: editStartTime, endTime: editEndTime, shiftType: editShiftType }
+      : { shiftType: editShiftType }
 
-      // ✅ Payload minimal - seulement le jour modifié
+    try {
       const payload = {
         userid: editingCell.userId,
         weekstart: currentWeek.start,
@@ -175,40 +170,19 @@ export default function AdminPlanningManagementPage() {
         [editingCell.day]: dayData,
       }
 
-      console.log('💾 Saving planning update:', payload)
-
-      // ✅ Utiliser PUT au lieu de POST
       const res = await fetch('/api/planning', {
-        method: 'PUT',
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
 
-      if (!res.ok) {
-        const errorData = await res.json()
-        console.error('❌ Server error:', errorData)
-        throw new Error(errorData.error || 'Erreur lors de la mise à jour')
-      }
-
-      const updatedData = await res.json()
-      console.log('✅ Planning updated:', updatedData)
+      if (!res.ok) throw new Error()
       
-      toast.success('Planning mis à jour avec succès', {
-        description: `${FULL_DAY_LABELS[editingCell.day]} modifié pour la semaine du ${formatWeekRange(currentWeek.start, currentWeek.end)}`
-      })
-      
+      toast.success('Planning mis à jour')
       setEditOpen(false)
-      
-      // ✅ Rafraîchir les données
-      await fetchTeamPlanning()
-      
-    } catch (error) {
-      console.error('❌ Error saving planning:', error)
-      toast.error('Erreur lors de la mise à jour', {
-        description: error instanceof Error ? error.message : 'Veuillez réessayer'
-      })
-    } finally {
-      setSaving(false)
+      fetchTeamPlanning()
+    } catch {
+      toast.error('Erreur lors de la mise à jour')
     }
   }
 
@@ -217,32 +191,28 @@ export default function AdminPlanningManagementPage() {
     return teamPlanning.filter(p => p.userid === selectedMember)
   }
 
+  // ✅ FONCTION CORRIGÉE pour afficher le badge
   const getStatusBadge = (dayData: PlanningDayRaw | null) => {
     if (!dayData?.shiftType || dayData.shiftType === 'OFF') {
-      return <span className="text-xs text-slate-600 font-medium">OFF</span>
+      return <span className="text-sm text-slate-400">OFF</span>
     }
     
-    if (dayData.shiftType === 'NORMAL' || dayData.shiftType === 'NIGHT') {
-      return (
-        <div className={`flex flex-col items-center gap-1 ${dayData.shiftType === 'NIGHT' ? 'text-purple-600' : 'text-indigo-600'}`}>
-          <Clock className="w-3 h-3" />
-          <span className="font-medium text-xs">{formatShiftDisplay(dayData)}</span>
-          {dayData.shiftType === 'NIGHT' && <span className="text-[10px] text-purple-500">Nuit</span>}
-        </div>
-      )
+    if (dayData.shiftType === 'VAC' || dayData.shiftType === 'MALADIE' || dayData.shiftType === 'AUTRE') {
+      const option = STATUS_OPTIONS.find(o => o.value === dayData.shiftType)
+      return <Badge className={`${option?.color} border-0 text-xs`}>{option?.label}</Badge>
     }
     
-    const statusOpt = STATUS_OPTIONS.find(o => o.value === dayData.shiftType)
+    // ✅ Pour NORMAL ou NIGHT: afficher les horaires
+    const shiftDisplay = formatShiftDisplay(dayData)
+    const isNight = dayData.shiftType === 'NIGHT'
     return (
-      <Badge className={statusOpt?.color + ' text-xs border-0'}>
-        {statusOpt?.label || dayData.shiftType}
-      </Badge>
+      <span className={`text-sm font-medium ${isNight ? 'text-purple-700' : 'text-indigo-700'}`}>
+        {shiftDisplay}{isNight && ' 🌙'}
+      </span>
     )
   }
 
-  if (!isAdmin && !isDemo) return null
-
-  if (status === 'loading') {
+  if (status === 'loading' && !isDemo) {
     return (
       <DashboardLayout>
         <div className="min-h-[60vh] flex items-center justify-center">
@@ -252,35 +222,40 @@ export default function AdminPlanningManagementPage() {
     )
   }
 
+  if (!isAdmin && !isDemo) {
+    return (
+      <DashboardLayout>
+        <div className="min-h-[60vh] flex flex-col items-center justify-center text-center">
+          <p className="text-muted-foreground">Accès réservé aux administrateurs</p>
+          <Button className="mt-4" onClick={() => router.push('/dashboard')}>Retour</Button>
+        </div>
+      </DashboardLayout>
+    )
+  }
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between flex-wrap gap-4">
-          <div>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">
-              Gestion Planning Équipe
-            </h1>
-            <p className="text-muted-foreground">Visualisez et modifiez le planning de votre équipe</p>
-          </div>
-          <Button variant="outline" className="gap-2" onClick={() => router.push('/admin/planning')}>
-            <Calendar className="w-4 h-4" />
-            Retour au planning
-          </Button>
+        <div>
+          <h1 className="text-3xl font-bold bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">
+            Gestion Planning
+          </h1>
+          <p className="text-muted-foreground">Afficher et modifier les plannings de l'équipe</p>
         </div>
 
-        {/* Week Navigation & Filters */}
+        {/* Controls */}
         <Card className="border-2 border-indigo-200">
           <CardContent className="pt-6">
-            <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-              {/* Week selector */}
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              {/* Week Navigation */}
               <div className="flex items-center gap-2">
                 <Button variant="ghost" size="sm" onClick={handlePrevWeek}>
                   <ChevronLeft className="w-4 h-4" />
                 </Button>
-                <div className="text-center min-w-[250px]">
-                  <p className="font-semibold text-lg">{formatWeekRange(currentWeek.start, currentWeek.end)}</p>
-                  <p className="text-xs text-muted-foreground">Semaine du dimanche au samedi</p>
+                <div className="text-center min-w-[180px]">
+                  <p className="font-semibold">{formatWeekRange(currentWeek.start, currentWeek.end)}</p>
+                  <p className="text-xs text-muted-foreground">Dimanche → Samedi</p>
                 </div>
                 <Button variant="ghost" size="sm" onClick={handleNextWeek}>
                   <ChevronRight className="w-4 h-4" />
@@ -345,6 +320,8 @@ export default function AdminPlanningManagementPage() {
                         <tr>
                           {DAYS.map(day => {
                             const dayData = planning[day as keyof WeeklyPlanning] as PlanningDayRaw | null
+                            const isOff = !dayData?.shiftType || dayData.shiftType === 'OFF'
+                            const isVac = dayData?.shiftType === 'VAC'
                             
                             return (
                               <td key={day} className="px-2 py-3 border-r last:border-0 align-top">
@@ -455,19 +432,8 @@ export default function AdminPlanningManagementPage() {
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setEditOpen(false)} disabled={saving}>
-                Annuler
-              </Button>
-              <Button onClick={handleSaveEdit} disabled={saving}>
-                {saving ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent mr-2"></div>
-                    Enregistrement...
-                  </>
-                ) : (
-                  'Enregistrer'
-                )}
-              </Button>
+              <Button variant="outline" onClick={() => setEditOpen(false)}>Annuler</Button>
+              <Button onClick={handleSaveEdit}>Enregistrer</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

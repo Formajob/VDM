@@ -1,4 +1,3 @@
-// src/app/dashboard/dispatch/page.tsx
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
@@ -16,9 +15,9 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import {
-  Package, Plus, Send, Edit3, Save, X,
-  AlertCircle, Tv, Search, Upload, ClipboardPaste,
-  FileText, Check, AlertTriangle, UserCheck, Filter, SortAsc, SortDesc, Calendar, Clock
+  Package, Plus, Send, Edit3, Save, X, AlertCircle, Tv, Search, 
+  Upload, ClipboardPaste, FileText, Check, AlertTriangle, UserCheck,
+  SortAsc, SortDesc, Calendar, Clock, Filter
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useDemoMode, DemoUser } from '@/hooks/useDemoMode'
@@ -474,7 +473,6 @@ function ProjectRow({ project, redacteurs, onEdit, onAssign }: {
   const hours = (new Date(project.deadline).getTime() - Date.now()) / (1000 * 60 * 60)
   const isLate = hours < 0
   const isSoon = hours < 48 && hours >= 0
-  const redacteur = redacteurs.find(r => r.id === project.redacteurId)
 
   return (
     <tr className="border-b border-slate-100 hover:bg-slate-50 transition-colors group">
@@ -539,7 +537,7 @@ function ProjectRow({ project, redacteurs, onEdit, onAssign }: {
       </td>
       
       {/* ✅ Commentaire (truncate) */}
-      <td className="py-2.5 px-3 max-w-[200px]">
+      <td className="py-2.5 px-3 max-w-[200px] hidden lg:table-cell">
         {project.comment ? (
           <span className="text-xs text-slate-500 truncate block" title={project.comment}>
             {project.comment}
@@ -575,7 +573,7 @@ export default function DispatchPage() {
   const [pendingAssignments, setPendingAssignments] = useState<Record<string, string>>({})
   const [dispatching, setDispatching] = useState(false)
   
-  // ✅ NOUVEAU: Filtres et tri
+  // ✅ Filtres et tri
   const [filterRedacteur, setFilterRedacteur] = useState<string>('all')
   const [sortField, setSortField] = useState<SortField>('deadline')
   const [sortOrder, setSortOrder] = useState<SortOrder>('asc')
