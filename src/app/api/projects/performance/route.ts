@@ -58,17 +58,14 @@ export async function GET(req: NextRequest) {
       endDate = startDate
     }
 
-    // ✅ CORRECTION: Objectifs DIFFÉRENCIÉS par rôle
+    // ✅ Objectifs DIFFÉRENCIÉS par rôle
     const daysInPeriod = Math.max(1, Math.ceil((new Date(endDate).getTime() - new Date(startDate).getTime()) / (1000 * 60 * 60 * 24)))
     
-    // Fonction pour calculer l'objectif selon le rôle
     const getObjectiveForRole = (jobRole: string, days: number) => {
       if (jobRole === 'TECH_SON') {
-        // Mixage: 5000 min/mois → ~167 min/jour
         const dailyObjective = 5000 / 30
         return Math.round(dailyObjective * days)
       }
-      // Rédaction et autres: 200 min/jour → 6000 min/mois
       return 200 * days
     }
 
@@ -76,7 +73,7 @@ export async function GET(req: NextRequest) {
       return jobRole === 'TECH_SON' ? 167 : 200
     }
 
-    // ✅ Récupérer TOUS les utilisateurs d'abord
+    // ✅ Récupérer TOUS les utilisateurs
     let allUsersQuery = supabaseAdmin
       .from('User')
       .select('id, name, jobRole')
@@ -84,7 +81,7 @@ export async function GET(req: NextRequest) {
       .in('jobRole', ['REDACTEUR', 'TECH_SON'])
       .order('name')
 
-    const { data: allUsersAll, error: usersAllError } = await allUsersQuery
+    const {  data:allUsersAll, error: usersAllError } = await allUsersQuery
     if (usersAllError) {
       console.error('❌ Users all error:', usersAllError)
       return NextResponse.json({ error: usersAllError.message }, { status: 500 })
@@ -113,7 +110,7 @@ export async function GET(req: NextRequest) {
     // ✅ Récupérer les projets
     let projectQuery = supabaseAdmin
       .from('Project')
-      .select('id, name, seriesName, durationMin, redacteurId, workflowStep, status, createdAt')
+      .select('*')
       .gte('createdAt', startDate)
       .lte('createdAt', endDate)
 
@@ -121,13 +118,15 @@ export async function GET(req: NextRequest) {
       const memberUser = allUsersAll?.find(u => u.id === finalMemberId)
       const memberJobRole = memberUser?.jobRole
       
+      // ✅ CORRECTION: Utiliser isWritten / isMixed au lieu de workflowStep
       if (memberJobRole === 'REDACTEUR') {
         projectQuery = projectQuery
-          .eq('workflowStep', 'REDACTION')
+          .eq('isWritten', true)
           .eq('status', 'FAIT')
       } else if (memberJobRole === 'TECH_SON') {
+        // ✅ CORRECTION: isMixed = true pour les Tech Son
         projectQuery = projectQuery
-          .eq('workflowStep', 'STUDIO')
+          .eq('isMixed', true)
           .eq('status', 'FAIT')
       }
       
@@ -136,19 +135,18 @@ export async function GET(req: NextRequest) {
       }
     } else if (team === 'redaction') {
       projectQuery = projectQuery
-        .eq('workflowStep', 'REDACTION')
+        .eq('isWritten', true)
         .eq('status', 'FAIT')
     } else if (team === 'mixage') {
       projectQuery = projectQuery
-        .eq('workflowStep', 'STUDIO')
+        .eq('isMixed', true)
         .eq('status', 'FAIT')
     } else {
       projectQuery = projectQuery
-        .in('workflowStep', ['REDACTION', 'STUDIO'])
         .eq('status', 'FAIT')
     }
 
-    const { data: projects, error: projectsError } = await projectQuery
+    const {  data:projects, error: projectsError } = await projectQuery
     if (projectsError) {
       console.error('❌ Projects error:', projectsError)
       return NextResponse.json({ error: projectsError.message }, { status: 500 })
@@ -156,11 +154,10 @@ export async function GET(req: NextRequest) {
 
     // ✅ Performance par membre avec objectifs personnalisés
     const tempPerformance = filteredUsers?.map(user => {
-      const userProjects = projects?.filter(p => p.redacteurId === user.id) || []
-      const totalMinutes = userProjects.reduce((sum, p) => sum + (p.durationMin || 0), 0)
+      const userProjects = projects?.filter((p: any) => p.redacteurId === user.id) || []
+      const totalMinutes = userProjects.reduce((sum: number, p: any) => sum + (p.durationMin || 0), 0)
       const projectCount = userProjects.length
       
-      // ✅ Objectif personnalisé selon le rôle
       const userObjective = getObjectiveForRole(user.jobRole, daysInPeriod)
       const ecart = totalMinutes - userObjective
       const moyenneJour = daysInPeriod > 0 ? Math.round(totalMinutes / daysInPeriod) : 0
@@ -188,29 +185,29 @@ export async function GET(req: NextRequest) {
         totalMembres: tempPerformance.length || 1
       }))
 
-    // ✅ Stats par équipe SÉPARÉES
-    const redactionMembers = performanceByMember.filter(m => m.jobRole === 'REDACTEUR')
-    const mixageMembers = performanceByMember.filter(m => m.jobRole === 'TECH_SON')
+    // ✅ Stats par équipe
+    const redactionMembers = performanceByMember.filter((m: any) => m.jobRole === 'REDACTEUR')
+    const mixageMembers = performanceByMember.filter((m: any) => m.jobRole === 'TECH_SON')
 
     const statsByTeam = {
       redaction: {
         members: redactionMembers.length,
-        minutes: redactionMembers.reduce((sum, m) => sum + m.totalMinutes, 0),
-        objectif: redactionMembers.reduce((sum, m) => sum + m.objectif, 0)
+        minutes: redactionMembers.reduce((sum: number, m: any) => sum + m.totalMinutes, 0),
+        objectif: redactionMembers.reduce((sum: number, m: any) => sum + m.objectif, 0)
       },
       mixage: {
         members: mixageMembers.length,
-        minutes: mixageMembers.reduce((sum, m) => sum + m.totalMinutes, 0),
-        objectif: mixageMembers.reduce((sum, m) => sum + m.objectif, 0)
+        minutes: mixageMembers.reduce((sum: number, m: any) => sum + m.totalMinutes, 0),
+        objectif: mixageMembers.reduce((sum: number, m: any) => sum + m.objectif, 0)
       }
     }
 
     // ✅ Stats équipe globales
     const teamStats = {
-      totalMinutes: performanceByMember.reduce((sum, m) => sum + m.totalMinutes, 0),
-      objectif: performanceByMember.reduce((sum, m) => sum + m.objectif, 0),
+      totalMinutes: performanceByMember.reduce((sum: number, m: any) => sum + m.totalMinutes, 0),
+      objectif: performanceByMember.reduce((sum: number, m: any) => sum + m.objectif, 0),
       pourcentage: performanceByMember.length > 0 
-        ? Math.round((performanceByMember.reduce((sum, m) => sum + m.totalMinutes, 0) / performanceByMember.reduce((sum, m) => sum + m.objectif, 0)) * 100) 
+        ? Math.round((performanceByMember.reduce((sum: number, m: any) => sum + m.totalMinutes, 0) / performanceByMember.reduce((sum: number, m: any) => sum + m.objectif, 0)) * 100) 
         : 0
     }
 
@@ -226,15 +223,15 @@ export async function GET(req: NextRequest) {
     }
 
     const dailyPerformance = daysInPeriodArray.map(day => {
-      const dayProjects = projects?.filter(p => {
+      const dayProjects = projects?.filter((p: any) => {
         const projectDate = p.createdAt?.split('T')[0]
         return projectDate === day.date
       }) || []
       const byMember: Record<string, { minutes: number; count: number }> = {}
       filteredUsers?.forEach(user => {
-        const userDayProjects = dayProjects.filter(p => p.redacteurId === user.id)
+        const userDayProjects = dayProjects.filter((p: any) => p.redacteurId === user.id)
         byMember[user.id] = {
-          minutes: userDayProjects.reduce((sum, p) => sum + (p.durationMin || 0), 0),
+          minutes: userDayProjects.reduce((sum: number, p: any) => sum + (p.durationMin || 0), 0),
           count: userDayProjects.length
         }
       })
@@ -243,7 +240,7 @@ export async function GET(req: NextRequest) {
 
     // ✅ Stats globales
     const totalProjects = projects?.length || 0
-    const totalMinutes = projects?.reduce((sum, p) => sum + (p.durationMin || 0), 0) || 0
+    const totalMinutes = projects?.reduce((sum: number, p: any) => sum + (p.durationMin || 0), 0) || 0
     const moyenneJourGlobal = daysInPeriod > 0 ? Math.round(totalMinutes / daysInPeriod) : 0
 
     // ✅ Alertes
@@ -256,7 +253,7 @@ export async function GET(req: NextRequest) {
 
     // ✅ Stats personnelles du membre connecté
     const myStats = finalMemberId && includeTeam 
-      ? performanceByMember.find(m => m.userId === finalMemberId) 
+      ? performanceByMember.find((m: any) => m.userId === finalMemberId) 
       : null
 
     return NextResponse.json({
@@ -270,7 +267,7 @@ export async function GET(req: NextRequest) {
         totalMinutes,
         moyenneJour: moyenneJourGlobal,
         memberCount: filteredUsers?.length || 0,
-        classement: performanceByMember.slice(0, 3).map(m => ({ nom: m.name, minutes: m.totalMinutes, rang: m.rang }))
+        classement: performanceByMember.slice(0, 3).map((m: any) => ({ nom: m.name, minutes: m.totalMinutes, rang: m.rang }))
       },
       alerts,
       myStats

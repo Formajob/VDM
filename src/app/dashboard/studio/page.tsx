@@ -25,7 +25,7 @@ interface Project {
   techSonId: string
   createdAt: string
   mixStartedAt: string
-  mixDoneAt: string
+  mixedAt: string
   User: { id: string; name: string }
   User_1: { id: string; name: string } | null
 }
@@ -210,7 +210,6 @@ export default function StudioDashboard() {
                   <td className="py-3 px-4 text-center">{project.User_1?.name || <span className="text-slate-400">-</span>}</td>
                   <td className="py-3 px-4 text-center">{getStatusBadge(project.mixStatus)}</td>
                   <td className="py-3 px-4 text-right space-x-1">
-                    {/* ✅ CORRECTION: Boutons côte à côte */}
                     {!project.techSonId && (
                       <Button size="sm" variant="outline" className="h-8 px-2" onClick={() => handleAction(project.id, 'commencer')} title="Commencer">
                         <PlayCircle className="w-4 h-4" />
@@ -234,7 +233,6 @@ export default function StudioDashboard() {
               <h2 className="text-xl font-bold mb-4">Détails du projet</h2>
               
               <div className="space-y-3 mb-6">
-                {/* ✅ CORRECTION: ID affiché ici, pas dans le tableau */}
                 <div className="flex justify-between">
                   <span className="text-slate-500">ID:</span>
                   <span className="font-mono text-xs bg-slate-100 px-2 py-1 rounded">{selectedProject.id}</span>
@@ -273,15 +271,14 @@ export default function StudioDashboard() {
                     <span className="font-medium">{new Date(selectedProject.mixStartedAt).toLocaleDateString('fr-FR')}</span>
                   </div>
                 )}
-                {selectedProject.mixDoneAt && (
+                {selectedProject.mixedAt && (
                   <div className="flex justify-between">
                     <span className="text-slate-500">Mix terminé:</span>
-                    <span className="font-medium">{new Date(selectedProject.mixDoneAt).toLocaleDateString('fr-FR')}</span>
+                    <span className="font-medium">{new Date(selectedProject.mixedAt).toLocaleDateString('fr-FR')}</span>
                   </div>
                 )}
               </div>
 
-              {/* ✅ CORRECTION: Commentaire avec sauvegarde */}
               <div className="mb-4">
                 <label className="block text-sm font-medium mb-2">Commentaire / Signalement</label>
                 <textarea
@@ -296,7 +293,6 @@ export default function StudioDashboard() {
                 </Button>
               </div>
 
-              {/* ✅ CORRECTION: Boutons d'action */}
               <div className="flex gap-2 justify-end">
                 {!selectedProject.techSonId && (
                   <Button onClick={() => handleAction(selectedProject.id, 'commencer')} className="bg-blue-600 hover:bg-blue-700">

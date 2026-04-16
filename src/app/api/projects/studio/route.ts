@@ -14,13 +14,13 @@ export async function GET(req: NextRequest) {
     const techSonId = searchParams.get('techSonId') || 'all'
     const dateFrom = searchParams.get('dateFrom')
     const dateTo = searchParams.get('dateTo')
-    const userId = (session.user as any).id
     const userJobRole = (session.user as any).jobRole
 
     if (!['TECH_SON', 'NARRATEUR', 'LIVREUR'].includes(userJobRole)) {
       return NextResponse.json({ error: 'Accès réservé au studio' }, { status: 403 })
     }
 
+    // ✅ Filtrer: workflowStep = REDACTION + status = FAIT
     let query = supabaseAdmin
       .from('Project')
       .select('*')
@@ -28,8 +28,9 @@ export async function GET(req: NextRequest) {
       .eq('status', 'FAIT')
       .order('createdAt', { ascending: false })
 
+    // ✅ Filtrer par mixStatus (colonnes de ton schéma nettoyé)
     if (status === 'en_attente') {
-      query = query.is('techSonId', null)
+      query = query.is('techSonId', null).eq('mixStatus', 'PAS_ENCORE')
     } else if (status === 'en_cours') {
       query = query.not('techSonId', 'is', null).eq('mixStatus', 'EN_COURS')
     } else if (status === 'fait') {
@@ -59,13 +60,13 @@ export async function GET(req: NextRequest) {
     let techSons: any[] = []
 
     if (redacteurIds.length > 0) {
-      const {  data: redactData } = await supabaseAdmin
+      const {  data:redactData } = await supabaseAdmin
         .from('User').select('id, name').in('id', redacteurIds)
       redacteurs = redactData || []
     }
 
     if (techSonIds.length > 0) {
-      const {  data: techData } = await supabaseAdmin
+      const {  data:techData } = await supabaseAdmin
         .from('User').select('id, name').in('id', techSonIds)
       techSons = techData || []
     }
@@ -100,6 +101,8 @@ export async function POST(req: NextRequest) {
     const { projectId, action, comment } = body
     const userId = (session.user as any).id
 
+    console.log('🔍 [STUDIO API] Action:', action, 'ProjectId:', projectId)
+
     if (action === 'commencer') {
       const { error } = await supabaseAdmin
         .from('Project')
@@ -110,21 +113,31 @@ export async function POST(req: NextRequest) {
           comment: comment || null
         })
         .eq('id', projectId)
+      
+      console.log('🔄 [STUDIO API] Commencer result:', { error })
       if (error) throw error
       
     } else if (action === 'fait') {
-      // ✅ CORRECTION: Mettre à jour workflowStep pour la performance
+      console.log('🔄 [STUDIO API] Updating project to FAIT:', projectId)
+      
+      // ✅ CORRECTION: Utiliser mixedAt (pas mixDoneAt) et NE PAS changer workflowStep
       const { error } = await supabaseAdmin
         .from('Project')
         .update({
           mixStatus: 'FAIT',
-          mixDoneAt: new Date().toISOString(),
+          mixedAt: new Date().toISOString(),  // ← ← ← mixedAt (schéma nettoyé)
           comment: comment || null,
-          workflowStep: 'STUDIO',  // ← ← ← CLÉ : pour que le projet soit compté en perf TECH_SON
-          status: 'FAIT'
+          isMixed: true,  // ← ← ← Pour la performance
+          // workflowStep RESTE 'REDACTION' pour que le projet reste dans Studio
         })
         .eq('id', projectId)
-      if (error) throw error
+      
+      console.log('🔄 [STUDIO API] Fait result:', { error, projectId })
+      
+      if (error) {
+        console.error('❌ [STUDIO API] Update error:', error)
+        throw error
+      }
       
     } else if (action === 'signaler') {
       const { error } = await supabaseAdmin
