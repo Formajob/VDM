@@ -14,21 +14,36 @@ export async function GET(req: NextRequest) {
     const techSonId = searchParams.get('techSonId') || 'all'
     const dateFrom = searchParams.get('dateFrom')
     const dateTo = searchParams.get('dateTo')
-    const userJobRole = (session.user as any).jobRole
 
-    if (!['TECH_SON', 'NARRATEUR', 'LIVREUR'].includes(userJobRole)) {
+    const userId = (session.user as any).id
+    const userRole = (session.user as any).role
+    const userJobRole = (session.user as any).jobRole
+    const isAdmin = userRole === 'ADMIN'
+
+    // ✅ Admin + Tech Son + Narrateur + Livreur
+    if (!isAdmin && !['TECH_SON', 'NARRATEUR', 'LIVREUR'].includes(userJobRole)) {
       return NextResponse.json({ error: 'Accès réservé au studio' }, { status: 403 })
     }
 
-    // ✅ Filtrer: workflowStep = REDACTION + status = FAIT
+    // ✅ CORRECTION 1: Projects finis en rédaction (DISPATCH ou REDACTION)
     let query = supabaseAdmin
       .from('Project')
       .select('*')
-      .eq('workflowStep', 'REDACTION')
+      .in('workflowStep', ['DISPATCH', 'REDACTION'])
       .eq('status', 'FAIT')
       .order('createdAt', { ascending: false })
 
-    // ✅ Filtrer par mixStatus (colonnes de ton schéma nettoyé)
+    // ✅ CORRECTION 2: Tech Son voit TOUS les projets (pas filtré par redacteurId)
+    // Seul le filtre techSonId s'applique si spécifié
+    if (!isAdmin && techSonId === 'all') {
+      // Tech Son voit seulement les projets qui lui sont assignés OU non assignés
+      query = query.or(`techSonId.is.null,techSonId.eq.${userId}`)
+    } else if (!isAdmin && techSonId !== 'all') {
+      query = query.eq('techSonId', techSonId)
+    }
+    // Admin voit tout (pas de filtre)
+
+    // ✅ Filtrer par mixStatus
     if (status === 'en_attente') {
       query = query.is('techSonId', null).eq('mixStatus', 'PAS_ENCORE')
     } else if (status === 'en_cours') {
@@ -39,14 +54,11 @@ export async function GET(req: NextRequest) {
       query = query.eq('mixStatus', 'SIGNALE')
     }
 
-    if (techSonId !== 'all') {
-      query = query.eq('techSonId', techSonId)
-    }
-
     if (dateFrom) query = query.gte('createdAt', dateFrom)
     if (dateTo) query = query.lte('createdAt', dateTo)
 
-    const {  data:projects, error } = await query
+    // ✅ CORRECTION 3: data: projects
+    const {  data: projects, error } = await query
 
     if (error) {
       console.error('❌ Studio projects error:', error)
@@ -60,13 +72,13 @@ export async function GET(req: NextRequest) {
     let techSons: any[] = []
 
     if (redacteurIds.length > 0) {
-      const {  data:redactData } = await supabaseAdmin
+      const {   data:redactData } = await supabaseAdmin
         .from('User').select('id, name').in('id', redacteurIds)
       redacteurs = redactData || []
     }
 
     if (techSonIds.length > 0) {
-      const {  data:techData } = await supabaseAdmin
+      const {   data:techData } = await supabaseAdmin
         .from('User').select('id, name').in('id', techSonIds)
       techSons = techData || []
     }
@@ -85,7 +97,11 @@ export async function GET(req: NextRequest) {
       signale: projectsWithUsers?.filter((p: any) => p.mixStatus === 'SIGNALE').length || 0,
     }
 
-    return NextResponse.json({ projects: projectsWithUsers || [], stats })
+    return NextResponse.json({ 
+      projects: projectsWithUsers || [], 
+      stats,
+      isAdmin
+    })
   } catch (e: any) {
     console.error('❌ Studio API error:', e)
     return NextResponse.json({ error: e.message }, { status: 500 })
@@ -98,46 +114,45 @@ export async function POST(req: NextRequest) {
     if (!session?.user) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
 
     const body = await req.json()
-    const { projectId, action, comment } = body
+    const { projectId, action, techSonId, comment } = body
     const userId = (session.user as any).id
+    const userRole = (session.user as any).role
+    const isAdmin = userRole === 'ADMIN'
 
-    console.log('🔍 [STUDIO API] Action:', action, 'ProjectId:', projectId)
+    console.log('🔍 [STUDIO API] Action:', action, 'ProjectId:', projectId, 'TechSonId:', techSonId)
 
     if (action === 'commencer') {
+      // ✅ CORRECTION 4: Admin doit passer techSonId, sinon c'est userId
+      const assignTechSonId = isAdmin && techSonId ? techSonId : userId
+      
       const { error } = await supabaseAdmin
         .from('Project')
         .update({
-          techSonId: userId,
+          techSonId: assignTechSonId,
           mixStatus: 'EN_COURS',
           mixStartedAt: new Date().toISOString(),
           comment: comment || null
         })
         .eq('id', projectId)
       
-      console.log('🔄 [STUDIO API] Commencer result:', { error })
+      console.log('🔄 [STUDIO API] Commencer result:', { error, assignTechSonId })
       if (error) throw error
       
     } else if (action === 'fait') {
-      console.log('🔄 [STUDIO API] Updating project to FAIT:', projectId)
-      
-      // ✅ CORRECTION: Utiliser mixedAt (pas mixDoneAt) et NE PAS changer workflowStep
       const { error } = await supabaseAdmin
         .from('Project')
         .update({
           mixStatus: 'FAIT',
-          mixedAt: new Date().toISOString(),  // ← ← ← mixedAt (schéma nettoyé)
+          mixDoneAt: new Date().toISOString(),
           comment: comment || null,
-          isMixed: true,  // ← ← ← Pour la performance
-          // workflowStep RESTE 'REDACTION' pour que le projet reste dans Studio
+          isMixed: true,  // ← ← ← IMPORTANT pour Performance
+          mixedAt: new Date().toISOString(),
+          workflowStep: 'REDACTION'
         })
         .eq('id', projectId)
       
       console.log('🔄 [STUDIO API] Fait result:', { error, projectId })
-      
-      if (error) {
-        console.error('❌ [STUDIO API] Update error:', error)
-        throw error
-      }
+      if (error) throw error
       
     } else if (action === 'signaler') {
       const { error } = await supabaseAdmin
