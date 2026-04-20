@@ -160,35 +160,47 @@ export default function PlanningPage() {
   }, [status, router, isDemo])
 
   // ✅ CORRECTION : Dépendances stables + garde-fou avec ref
-  const fetchPlanning = useCallback(async () => {
-    if (!user?.id) return
-    const fetchKey = `my_${weekStart}`
-    if (lastFetchedWeek.current === fetchKey) return
-    
-    lastFetchedWeek.current = fetchKey
-    
-    setLoading(true)
-    
-    const res = await fetch(`/api/planning?userId=${user.id}&weekStart=${weekStart}`)
-    if (res.ok) {
-      const data = await res.json()
-      setPlanning(data)
-    }
-    
-    const balanceRes = await fetch(`/api/leave-balance?userId=${user.id}`)
-    if (balanceRes.ok) {
-      const balance = await balanceRes.json()
-      setLeaveBalance(balance)
-    }
-    
-    const membersRes = await fetch('/api/users')
-    if (membersRes.ok) {
-      const members = await membersRes.json()
-      setTeamMembers(members.filter((m: any) => m.id !== user.id && m.role !== 'ADMIN'))
-    }
-    
-    setLoading(false)
-  }, [user?.id, weekStart])
+ const fetchPlanning = useCallback(async () => {
+  if (!user?.id) return
+  const fetchKey = `my_${weekStart}`
+  if (lastFetchedWeek.current === fetchKey) return
+  
+  lastFetchedWeek.current = fetchKey
+  
+  setLoading(true)
+  
+  const res = await fetch(`/api/planning?userId=${user.id}&weekStart=${weekStart}`)
+  if (res.ok) {
+    const data = await res.json()
+    setPlanning(data)
+  }
+  
+  const balanceRes = await fetch(`/api/leave-balance?userId=${user.id}`)
+  if (balanceRes.ok) {
+    const balance = await balanceRes.json()
+    setLeaveBalance(balance)
+  }
+  
+  // ✅ CORRECTION : Vérifier que members existe et est un array
+ const membersRes = await fetch('/api/users')
+if (membersRes.ok) {
+  const response = await membersRes.json()
+  // ✅ L'API retourne { users: [...] } et non directement un tableau
+  const members = response.users || []
+  
+  if (Array.isArray(members)) {
+    setTeamMembers(members.filter((m: any) => m.id !== user.id && m.role !== 'ADMIN'))
+  } else {
+    console.error('❌ Members is not an array:', members)
+    setTeamMembers([])
+  }
+} else {
+  console.error('❌ Failed to fetch members')
+  setTeamMembers([])
+}
+  
+  setLoading(false)
+}, [user?.id, weekStart])
 
   // ✅ CORRECTION : Dépendances stables + garde-fou avec ref
   const fetchTeamPlanning = useCallback(async () => {

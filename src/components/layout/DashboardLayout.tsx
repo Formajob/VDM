@@ -76,7 +76,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       icon: Calendar,
       children: isAdmin ? [
         { label: 'Gestion Planning',   href: '/admin/planning/management', icon: Calendar },
-        { label: 'Validation Swaps',   href: '/admin/planning/swaps',      icon: Repeat },
+      
         { label: 'Rapports',           href: '/admin/planning/reports',    icon: FileText },
       ] : undefined,
     },

@@ -1017,16 +1017,52 @@ export default function AdminAttendanceView({
 }: AdminAttendanceViewProps) {
   const [users, setUsers] = useState<UserItem[]>([])
 
-  useEffect(() => {
-    fetch('/api/users').then(r => r.json()).then(data => {
-      setUsers(data.map((u: any) => ({ 
-        id: u.id, 
-        name: u.name, 
-        email: u.email, 
-        jobRole: u.jobRole || null 
-      })).filter((u: any) => u.jobRole !== 'ADMIN'))  // ← Filtrer les ADMIN
-    })
-  }, [])
+ // ✅ CORRECTION: Charger les utilisateurs depuis /api/users
+useEffect(() => {
+  const loadUsers = async () => {
+    try {
+      console.log('🔍 Loading users from /api/users...')
+      const res = await fetch('/api/users')
+      
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`)
+      }
+      
+      const responseData = await res.json()
+      console.log('📦 API Response:', responseData)
+      
+      // ✅ CORRECTION: L'API retourne { users: [...] }, pas [...]
+      let usersList: any[] = []
+      
+      if (Array.isArray(responseData)) {
+        // Ancien format: l'API retournait directement un array
+        usersList = responseData
+      } else if (responseData && Array.isArray(responseData.users)) {
+        // Nouveau format: l'API retourne { users: [...] }
+        usersList = responseData.users
+      } else {
+        console.warn('⚠️  Unexpected API response format:', responseData)
+        usersList = []
+      }
+      
+      console.log('✅ Users loaded:', usersList.length)
+      
+      setUsers(usersList.map((u: any) => ({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        jobRole: u.jobRole,
+        role: u.role,
+        isActive: u.isActive !== false  // Default to true if not set
+      })))
+    } catch (error) {
+      console.error('❌ Error loading users:', error)
+      setUsers([])
+    }
+  }
+  
+  loadUsers()
+}, [])
 
   return (
     <div className="space-y-6">

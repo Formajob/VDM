@@ -12,7 +12,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { toast } from 'sonner'
-import { Calendar, ChevronLeft, ChevronRight, Edit, Users, Filter, Clock } from 'lucide-react'
+import { Calendar, ChevronLeft, ChevronRight, Edit, Users, Filter, Clock, Copy } from 'lucide-react'
 import { useDemoMode, DemoUser } from '@/hooks/useDemoMode'
 
 // ✅ INTERFACE CORRIGÉE pour correspondre au format BDD
@@ -147,6 +147,55 @@ export default function AdminPlanningManagementPage() {
     setCurrentWeek(getWeekRange(newSunday))
   }
 
+  // ✅ NOUVELLE FONCTION : Dupliquer le planning d'équipe vers la semaine suivante
+  const handleDuplicateTeamToNextWeek = async () => {
+    if (teamPlanning.length === 0) {
+      toast.error('Aucun planning à dupliquer pour cette semaine')
+      return
+    }
+
+    // Calculer la semaine suivante
+    const nextSunday = new Date(currentWeek.sunday)
+    nextSunday.setDate(nextSunday.getDate() + 7)
+    const nextWeek = getWeekRange(nextSunday)
+
+    try {
+      setLoading(true)
+      
+      const res = await fetch('/api/planning', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'duplicateTeam',
+          sourceWeekStart: currentWeek.start,
+          targetWeekStart: nextWeek.start,
+          targetWeekEnd: nextWeek.end,
+        }),
+      })
+
+      if (!res.ok) {
+        const errorData = await res.json()
+        throw new Error(errorData.error || 'Erreur lors de la duplication')
+      }
+
+      const result = await res.json()
+      
+      toast.success(`Planning de l'équipe dupliqué ! ${result.duplicated} membre(s) 🎉`)
+      
+      if (result.errors > 0) {
+        toast.warning(`${result.errors} erreur(s) lors de la duplication`)
+      }
+      
+      // Passer automatiquement à la semaine suivante
+      setCurrentWeek(nextWeek)
+    } catch (error: any) {
+      console.error('Error duplicating team planning:', error)
+      toast.error(error.message || 'Impossible de dupliquer le planning')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const handleEditClick = (userId: string, day: string, currentData: PlanningDayRaw | null) => {
     setEditingCell({ userId, day })
     setEditStartTime(currentData?.startTime || '08:00')
@@ -187,29 +236,50 @@ export default function AdminPlanningManagementPage() {
       if (!res.ok) {
         const errorData = await res.json()
         console.error('❌ Server error:', errorData)
-        throw new Error(errorData.error || 'Erreur lors de la mise à jour')
+        throw new Error(errorData.error || 'Erreur serveur')
       }
 
-      const updatedData = await res.json()
-      console.log('✅ Planning updated:', updatedData)
-      
-      toast.success('Planning mis à jour avec succès', {
-        description: `${FULL_DAY_LABELS[editingCell.day]} modifié pour la semaine du ${formatWeekRange(currentWeek.start, currentWeek.end)}`
-      })
-      
-      setEditOpen(false)
-      
-      // ✅ Rafraîchir les données
+      const updatedPlanning = await res.json()
+      console.log('✅ Planning updated:', updatedPlanning)
+
+      // Rafraîchir les données
       await fetchTeamPlanning()
       
-    } catch (error) {
+      toast.success('Planning mis à jour avec succès ! 🎉')
+      setEditOpen(false)
+    } catch (error: any) {
       console.error('❌ Error saving planning:', error)
-      toast.error('Erreur lors de la mise à jour', {
-        description: error instanceof Error ? error.message : 'Veuillez réessayer'
-      })
+      toast.error(error.message || 'Erreur lors de la sauvegarde')
     } finally {
       setSaving(false)
     }
+  }
+
+  const getStatusBadge = (dayData: PlanningDayRaw | null) => {
+    if (!dayData || !dayData.shiftType) {
+      return <span className="text-xs text-slate-400">—</span>
+    }
+
+    const option = STATUS_OPTIONS.find(o => o.value === dayData.shiftType)
+    
+    if (dayData.shiftType === 'NORMAL' || dayData.shiftType === 'NIGHT') {
+      return (
+        <div className="flex flex-col items-center gap-1">
+          <Badge className={option?.color + ' text-xs border-0'}>
+            {option?.label}
+          </Badge>
+          <span className="text-xs font-mono font-medium">
+            {formatShiftDisplay(dayData)}
+          </span>
+        </div>
+      )
+    }
+
+    return (
+      <Badge className={option?.color + ' text-xs border-0'}>
+        {option?.label}
+      </Badge>
+    )
   }
 
   const getFilteredPlanning = () => {
@@ -217,32 +287,7 @@ export default function AdminPlanningManagementPage() {
     return teamPlanning.filter(p => p.userid === selectedMember)
   }
 
-  const getStatusBadge = (dayData: PlanningDayRaw | null) => {
-    if (!dayData?.shiftType || dayData.shiftType === 'OFF') {
-      return <span className="text-xs text-slate-600 font-medium">OFF</span>
-    }
-    
-    if (dayData.shiftType === 'NORMAL' || dayData.shiftType === 'NIGHT') {
-      return (
-        <div className={`flex flex-col items-center gap-1 ${dayData.shiftType === 'NIGHT' ? 'text-purple-600' : 'text-indigo-600'}`}>
-          <Clock className="w-3 h-3" />
-          <span className="font-medium text-xs">{formatShiftDisplay(dayData)}</span>
-          {dayData.shiftType === 'NIGHT' && <span className="text-[10px] text-purple-500">Nuit</span>}
-        </div>
-      )
-    }
-    
-    const statusOpt = STATUS_OPTIONS.find(o => o.value === dayData.shiftType)
-    return (
-      <Badge className={statusOpt?.color + ' text-xs border-0'}>
-        {statusOpt?.label || dayData.shiftType}
-      </Badge>
-    )
-  }
-
-  if (!isAdmin && !isDemo) return null
-
-  if (status === 'loading') {
+  if (!isDemo && status === 'loading') {
     return (
       <DashboardLayout>
         <div className="min-h-[60vh] flex items-center justify-center">
@@ -256,36 +301,45 @@ export default function AdminPlanningManagementPage() {
     <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between flex-wrap gap-4">
-          <div>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">
-              Gestion Planning Équipe
-            </h1>
-            <p className="text-muted-foreground">Visualisez et modifiez le planning de votre équipe</p>
-          </div>
-          <Button variant="outline" className="gap-2" onClick={() => router.push('/admin/planning')}>
-            <Calendar className="w-4 h-4" />
-            Retour au planning
-          </Button>
+        <div>
+          <h1 className="text-3xl font-bold bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">
+            Gestion Planning
+          </h1>
+          <p className="text-muted-foreground">Gérez le planning de toute l'équipe</p>
         </div>
 
-        {/* Week Navigation & Filters */}
+        {/* Week Navigation & Duplicate Button */}
         <Card className="border-2 border-indigo-200">
           <CardContent className="pt-6">
-            <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-              {/* Week selector */}
-              <div className="flex items-center gap-2">
+            <div className="space-y-4">
+              {/* Navigation de semaine */}
+              <div className="flex items-center justify-between">
                 <Button variant="ghost" size="sm" onClick={handlePrevWeek}>
                   <ChevronLeft className="w-4 h-4" />
                 </Button>
-                <div className="text-center min-w-[250px]">
+                <div className="text-center flex-1">
                   <p className="font-semibold text-lg">{formatWeekRange(currentWeek.start, currentWeek.end)}</p>
-                  <p className="text-xs text-muted-foreground">Semaine du dimanche au samedi</p>
+                  <p className="text-sm text-muted-foreground">Semaine du dimanche au samedi</p>
                 </div>
                 <Button variant="ghost" size="sm" onClick={handleNextWeek}>
                   <ChevronRight className="w-4 h-4" />
                 </Button>
               </div>
+
+              {/* ✅ NOUVEAU : Bouton de duplication d'équipe */}
+              {teamPlanning.length > 0 && (
+                <div className="pt-4 border-t flex justify-center">
+                  <Button 
+                    variant="default" 
+                    className="gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700"
+                    onClick={handleDuplicateTeamToNextWeek}
+                    disabled={loading}
+                  >
+                    <Copy className="w-4 h-4" />
+                    Dupliquer le planning d'équipe vers la semaine suivante
+                  </Button>
+                </div>
+              )}
 
               {/* Member Filter */}
               <div className="flex items-center gap-2">

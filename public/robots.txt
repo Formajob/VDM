@@ -20,7 +20,7 @@ Allow: /
  
 cd C:\Users\User18\Desktop\VDM
 git add .
-git commit -m "feat: projets reel mois avril + page studio  "
+git commit -m "feat: projets reel mois avril 19/04 + page studio + Redaction + dupliquer planning  "
 git push origin main
 
  */}

@@ -1,44 +1,20 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState } from 'react'
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import DashboardLayout from '@/components/layout/DashboardLayout'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import {
-  FileText, Clock, CheckCircle2, Circle, XCircle,
-  ChevronDown, ChevronRight, Search,
-  Calendar, Hash, Tv, AlertTriangle, Edit3, Save,
-  PlayCircle, ArrowUpDown,
-} from 'lucide-react'
+import { Package, PlayCircle, CheckCircle2, AlertTriangle, Eye, Edit, AlertCircle, Search, Clock, Calendar, ArrowUpDown, ArrowUp, ArrowDown, Circle } from 'lucide-react'
 import { toast } from 'sonner'
 import { useDemoMode, DemoUser } from '@/hooks/useDemoMode'
-
-interface Redacteur {
-  id: string
-  name: string
-  email?: string
-  jobRole: string
-}
 
 interface Project {
   id: string
@@ -50,97 +26,53 @@ interface Project {
   projectCode: string | null
   projectType: string | null
   deadline: string
-  startDate: string | null
-  pageCount: number | null
   durationMin: number | null
-  writtenAt: string | null
-  isWritten: boolean
-  status: 'PAS_ENCORE' | 'EN_COURS' | 'FAIT' | 'ANNULE'
-  workflowStep: string
-  vsStatus: string | null
-  comment: string | null
+  pageCount: number | null
+  status: string | null
   redacteurId: string | null
-  redacteur: Redacteur | null
+  techSonId: string | null
+  createdAt: string
+  writtenAt: string | null
+  comment: string | null
+  User: { id: string; name: string } | null
+  User_1: { id: string; name: string } | null
 }
 
-interface GroupedRedacteur {
-  redacteur: Redacteur
-  projects: Project[]
+interface Redacteur {
+  id: string
+  name: string
+  jobRole: string
 }
-
-type StatusFilter = 'ALL' | 'PAS_ENCORE' | 'EN_COURS' | 'FAIT' | 'ANNULE' | 'SIGNALE'
 
 interface Stats {
   total: number
   pas_encore: number
   en_cours: number
   fait: number
-  signale: number
+  en_retard: number
 }
 
-interface SaveData {
-  status: string
-  pageCount: number | null
-  writtenAt: string | null
-  comment: string
-}
+type StatusFilter = 'ALL' | 'PAS_ENCORE' | 'EN_COURS' | 'FAIT' | 'EN_RETARD'
+type SortField = 'deadline' | 'createdAt' | 'name' | 'durationMin' | 'writtenAt'
+type SortOrder = 'asc' | 'desc'
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: any }> = {
-  FAIT:      { label: 'Fait',       color: 'bg-emerald-100 text-emerald-700 border-emerald-200', icon: CheckCircle2 },
-  EN_COURS:  { label: 'En cours',   color: 'bg-amber-100 text-amber-700 border-amber-200',       icon: Clock },
-  PAS_ENCORE:{ label: 'Pas encore', color: 'bg-slate-100 text-slate-600 border-slate-200',       icon: Circle },
-  ANNULE:    { label: 'Annulé',     color: 'bg-red-100 text-red-600 border-red-200',             icon: XCircle },
-  SIGNALE:   { label: 'Signalé',    color: 'bg-red-100 text-red-700 border-red-200',             icon: AlertTriangle },
+  FAIT: { label: 'Fait', color: 'bg-emerald-100 text-emerald-700 border-emerald-200', icon: CheckCircle2 },
+  EN_COURS: { label: 'En cours', color: 'bg-blue-100 text-blue-700 border-blue-200', icon: Clock },
+  PAS_ENCORE: { label: 'Pas encore', color: 'bg-slate-100 text-slate-600 border-slate-200', icon: Circle },
+  EN_RETARD: { label: 'En retard', color: 'bg-red-100 text-red-700 border-red-200', icon: AlertTriangle },
 }
 
-function StatusBadge({ status, vsStatus }: { status: string; vsStatus?: string | null }) {
-  if (vsStatus === 'SIGNALE') {
-    const cfg = STATUS_CONFIG.SIGNALE
-    const Icon = cfg.icon
-    return (
-      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${cfg.color}`}>
-        <Icon className="w-3 h-3" />
-        {cfg.label}
-      </span>
-    )
-  }
+function StatusBadge({ status }: { status: string | null }) {
+  if (!status) status = 'PAS_ENCORE'
   const cfg = STATUS_CONFIG[status as keyof typeof STATUS_CONFIG]
   if (!cfg) return <span>{status}</span>
   const Icon = cfg.icon
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${cfg.color}`}>
-      <Icon className="w-3 h-3" />
-      {cfg.label}
+      <Icon className="w-3 h-3" />{cfg.label}
     </span>
   )
-}
-
-function DeadlineCell({ deadline }: { deadline: string }) {
-  const date = new Date(deadline)
-  const hours = (date.getTime() - Date.now()) / (1000 * 60 * 60)
-  const formatted = date.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })
-  if (hours < 0) return <span className="text-red-600 font-medium">{formatted}</span>
-  if (hours < 48) return <span className="text-amber-600 font-medium">{formatted}</span>
-  return <span className="text-slate-600">{formatted}</span>
-}
-
-function getProjectTypeLabel(type: string | null) {
-  if (!type) return '-'
-  switch (type) {
-    case 'FILM': return 'Film'
-    case 'SERIE': return 'Série'
-    case 'EMISSION': return 'Émission'
-    default: return type
-  }
-}
-
-function formatDateLocal(dateString: string | null): string {
-  if (!dateString) return ''
-  const date = new Date(dateString)
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
 }
 
 function displayDateLocal(dateString: string | null): string {
@@ -149,150 +81,21 @@ function displayDateLocal(dateString: string | null): string {
   return date.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })
 }
 
-interface EditModalProps {
-  project: Project | null
-  onClose: () => void
-  onSave: (id: string, data: SaveData) => Promise<void>
-  isAdmin: boolean
+function getProjectTypeLabel(type: string | null) {
+  if (!type) return '-'
+  return type === 'FILM' ? 'Film' : 'Série/Émission'
 }
 
-function EditModal({ project, onClose, onSave, isAdmin }: EditModalProps) {
-  const [status, setStatus] = useState(project?.status || 'PAS_ENCORE')
-  const [pageCount, setPageCount] = useState(project?.pageCount?.toString() || '')
-  const [writtenAt, setWrittenAt] = useState(formatDateLocal(project?.writtenAt || null))
-  const [comment, setComment] = useState(project?.comment || '')
-  const [saving, setSaving] = useState(false)
-
-  useEffect(() => {
-    if (project) {
-      setStatus(project.status || 'PAS_ENCORE')
-      setPageCount(project.pageCount?.toString() || '')
-      setWrittenAt(formatDateLocal(project.writtenAt))
-      setComment(project.comment || '')
-    }
-  }, [project])
-
-  if (!project) return null
-
-  const handleSave = async () => {
-    setSaving(true)
-    await onSave(project.id, {
-      status,
-      pageCount: pageCount ? parseInt(pageCount) : null,
-      writtenAt: writtenAt || null,
-      comment,
-    })
-    setSaving(false)
-    onClose()
-  }
-
-  return (
-    <Dialog open={!!project} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>
-            {project.seriesName}
-            {project.season && ` S${project.season}`}
-            {project.episodeNumber && ` Ép.${project.episodeNumber}`}
-          </DialogTitle>
-          {project.projectCode && (
-            <p className="text-xs text-slate-500 font-mono">{project.projectCode}</p>
-          )}
-        </DialogHeader>
-
-        <div className="space-y-4 py-2">
-          <div className="space-y-1.5">
-            <Label className="text-sm font-medium">Statut</Label>
-            <Select value={status} onValueChange={(value) => setStatus(value as any)}>
-              <SelectTrigger className="h-9">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="PAS_ENCORE">Pas encore</SelectItem>
-                <SelectItem value="EN_COURS">En cours</SelectItem>
-                <SelectItem value="FAIT">Fait</SelectItem>
-                <SelectItem value="ANNULE">Annulé</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-sm font-medium flex items-center gap-1">
-                <Hash className="w-3 h-3" />Nombre de pages
-              </Label>
-              <Input
-                type="number"
-                min="0"
-                placeholder="ex: 12"
-                value={pageCount}
-                onChange={e => setPageCount(e.target.value)}
-                className="h-9"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-sm font-medium flex items-center gap-1">
-                <Calendar className="w-3 h-3" />Date de rédaction
-              </Label>
-              <Input
-                type="date"
-                value={writtenAt}
-                onChange={e => setWrittenAt(e.target.value)}
-                className="h-9"
-              />
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label className="text-sm font-medium">Commentaire</Label>
-            <Textarea
-              placeholder="Observations, notes..."
-              value={comment}
-              onChange={e => setComment(e.target.value)}
-              className="resize-none h-20 text-sm"
-            />
-          </div>
-
-          <div className="bg-slate-50 rounded-lg p-3 grid grid-cols-2 gap-2 text-xs text-slate-600">
-            <div><span className="font-medium">Échéance :</span> {displayDateLocal(project.deadline)}</div>
-            {project.broadcastChannel && <div><span className="font-medium">Chaîne :</span> {project.broadcastChannel}</div>}
-            {project.startDate && <div><span className="font-medium">Réception :</span> {displayDateLocal(project.startDate)}</div>}
-          </div>
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" size="sm" onClick={onClose}>Annuler</Button>
-          <Button size="sm" onClick={handleSave} disabled={saving} className="bg-indigo-600 hover:bg-indigo-700 text-white gap-1.5">
-            <Save className="w-3.5 h-3.5" />
-            {saving ? 'Enregistrement...' : 'Enregistrer'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-interface CompleteModalProps {
-  project: Project | null
-  onClose: () => void
-  onComplete: (projectId: string, pageCount: number, comment: string, writtenAt: string) => Promise<void>
-}
-
-function CompleteModal({ project, onClose, onComplete }: CompleteModalProps) {
-  const [pageCount, setPageCount] = useState('')
+// Modal Commencer
+function StartModal({ project, onClose, onStart }: any) {
   const [comment, setComment] = useState('')
-  const [writtenAt, setWrittenAt] = useState(formatDateLocal(new Date().toISOString()))
   const [saving, setSaving] = useState(false)
 
   if (!project) return null
 
-  const handleComplete = async () => {
-    if (!pageCount || parseInt(pageCount) <= 0) {
-      toast.error('Veuillez entrer un nombre de pages valide')
-      return
-    }
+  const handleStart = async () => {
     setSaving(true)
-    await onComplete(project.id, parseInt(pageCount), comment, writtenAt)
+    await onStart(project.id, comment)
     setSaving(false)
     onClose()
   }
@@ -300,438 +103,396 @@ function CompleteModal({ project, onClose, onComplete }: CompleteModalProps) {
   return (
     <Dialog open={!!project} onOpenChange={onClose}>
       <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-            Compléter le projet
-          </DialogTitle>
-        </DialogHeader>
-
+        <DialogHeader><DialogTitle>Commencer la rédaction</DialogTitle></DialogHeader>
         <div className="space-y-4 py-2">
           <div className="bg-slate-50 rounded-lg p-3 space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-slate-500">Projet:</span>
-              <span className="font-medium">{project.seriesName}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-500">Durée:</span>
-              <span className="font-medium">{project.durationMin || 0} min</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-500">Échéance:</span>
-              <span className="font-medium">{displayDateLocal(project.deadline)}</span>
-            </div>
+            <div className="flex justify-between"><span className="text-slate-500">Projet:</span><span className="font-medium">{project.name}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Durée:</span><span className="font-medium">{project.durationMin ? Math.round(project.durationMin) : 0} min</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Échéance:</span><span className="font-medium">{displayDateLocal(project.deadline)}</span></div>
           </div>
-
           <div className="space-y-1.5">
-            <Label className="text-sm font-medium flex items-center gap-1">
-              <Hash className="w-4 h-4" />Nombre de pages *
-            </Label>
-            <Input
-              type="number"
-              min="1"
-              placeholder="ex: 12"
-              value={pageCount}
-              onChange={e => setPageCount(e.target.value)}
-              className="h-10"
-              autoFocus
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label className="text-sm font-medium flex items-center gap-1">
-              <Calendar className="w-4 h-4" />Date de rédaction *
-            </Label>
-            <Input
-              type="date"
-              value={writtenAt}
-              onChange={e => setWrittenAt(e.target.value)}
-              className="h-10"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label className="text-sm font-medium">Commentaire (optionnel)</Label>
-            <Textarea
-              placeholder="Observations, notes..."
-              value={comment}
-              onChange={e => setComment(e.target.value)}
-              className="resize-none h-20 text-sm"
-            />
+            <Label>Commentaire</Label>
+            <Textarea value={comment} onChange={e => setComment(e.target.value)} className="h-20" />
           </div>
         </div>
-
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onClose}>Annuler</Button>
-          <Button 
-            size="sm" 
-            onClick={handleComplete} 
-            disabled={saving || !pageCount} 
-            className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5"
-          >
-            <CheckCircle2 className="w-3.5 h-3.5" />
-            {saving ? 'Enregistrement...' : 'Compléter'}
-          </Button>
+          <Button size="sm" onClick={handleStart} disabled={saving}>{saving ? '...' : 'Commencer'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   )
 }
 
-function ProjectRow({ 
-  project, 
-  onEdit, 
-  onAction,
-  isAdmin 
-}: { 
-  project: Project
-  onEdit: (p: Project) => void
-  onAction: (p: Project, action: 'commencer' | 'completer') => void
-  isAdmin: boolean 
-}) {
+// Modal Compléter
+function CompleteModal({ project, onClose, onComplete }: any) {
+  const [comment, setComment] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  if (!project) return null
+
+  const handleComplete = async () => {
+    setSaving(true)
+    await onComplete(project.id, comment)
+    setSaving(false)
+    onClose()
+  }
+
   return (
-    <tr className="group border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
-      <td className="py-2.5 px-4">
-        <div className="font-medium text-slate-800">
-          {project.seriesName}
-          {project.season && <span className="text-slate-500"> S{project.season}</span>}
-          {project.episodeNumber && <span className="text-slate-500"> Ép.{project.episodeNumber}</span>}
+    <Dialog open={!!project} onOpenChange={onClose}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader><DialogTitle>Marquer comme fait</DialogTitle></DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="bg-slate-50 rounded-lg p-3 text-sm">
+            <div className="flex justify-between"><span className="text-slate-500">Projet:</span><span className="font-medium">{project.name}</span></div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Commentaire</Label>
+            <Textarea value={comment} onChange={e => setComment(e.target.value)} className="h-20" />
+          </div>
         </div>
-        {project.projectCode && (
-          <div className="text-xs text-slate-400 font-mono mt-0.5">{project.projectCode}</div>
-        )}
-      </td>
-
-      <td className="py-2.5 px-3">
-        <DeadlineCell deadline={project.deadline} />
-      </td>
-
-      <td className="py-2.5 px-3 hidden sm:table-cell text-center">
-        <Badge variant="outline" className="text-xs">
-          {getProjectTypeLabel(project.projectType)}
-        </Badge>
-      </td>
-
-      <td className="py-2.5 px-3 hidden lg:table-cell text-center">
-        {project.durationMin ? `${project.durationMin} min` : '-'}
-      </td>
-
-      <td className="py-2.5 px-3 hidden sm:table-cell text-center">
-        {project.pageCount != null ? (
-          <span className="text-sm font-semibold text-slate-700">{project.pageCount}</span>
-        ) : (
-          <span className="text-slate-300 text-xs">—</span>
-        )}
-      </td>
-
-      <td className="py-2.5 px-3 hidden md:table-cell">
-        {displayDateLocal(project.writtenAt)}
-      </td>
-
-      <td className="py-2.5 px-3">
-        <StatusBadge status={project.status} vsStatus={project.vsStatus} />
-      </td>
-
-      <td className="py-2.5 px-3 text-right">
-        <div className="flex items-center justify-end gap-1">
-          {project.status === 'PAS_ENCORE' && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 px-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-              onClick={() => onAction(project, 'commencer')}
-              title="Commencer"
-            >
-              <PlayCircle className="w-3.5 h-3.5" />
-            </Button>
-          )}
-          
-          {project.status === 'EN_COURS' && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 px-2 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
-              onClick={() => onAction(project, 'completer')}
-              title="Compléter"
-            >
-              <CheckCircle2 className="w-3.5 h-3.5" />
-            </Button>
-          )}
-          
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 opacity-0 group-hover:opacity-100 transition-opacity text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50"
-            onClick={() => onEdit(project)}
-            title="Voir détails"
-          >
-            <Edit3 className="w-3.5 h-3.5" />
-          </Button>
-        </div>
-      </td>
-    </tr>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={onClose}>Annuler</Button>
+          <Button size="sm" onClick={handleComplete} disabled={saving}>{saving ? '...' : 'Compléter'}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
-function RedacteurGroup({
-  redacteur,
-  projects,
-  onEdit,
-  onAction,
-  statusFilter,
-  search,
-}: {
-  redacteur: Redacteur
-  projects: Project[]
-  onEdit: (p: Project) => void
-  onAction: (p: Project, action: 'commencer' | 'completer') => void
-  statusFilter: StatusFilter
-  search: string
-}) {
-  const [open, setOpen] = useState(true)
+// ✅ CORRECTION 3: Modal Modifier (Admin seulement)
+function EditModal({ project, onClose, onEdit, isAdmin }: any) {
+  const [status, setStatus] = useState(project?.status || 'PAS_ENCORE')
+  const [writtenAt, setWrittenAt] = useState(project?.writtenAt?.split('T')[0] || '')
+  const [pageCount, setPageCount] = useState(project?.pageCount || 0)
+  const [durationMin, setDurationMin] = useState(project?.durationMin || 0)
+  const [comment, setComment] = useState(project?.comment || '')
+  const [saving, setSaving] = useState(false)
 
-  const filtered = projects.filter(p => {
-    const matchStatus = statusFilter === 'ALL' || p.status === statusFilter || (statusFilter === 'SIGNALE' && p.vsStatus === 'SIGNALE')
-    const matchSearch = !search ||
-      p.seriesName.toLowerCase().includes(search.toLowerCase()) ||
-      p.projectCode?.toLowerCase().includes(search.toLowerCase()) ||
-      p.broadcastChannel?.toLowerCase().includes(search.toLowerCase())
-    return matchStatus && matchSearch
-  })
+  if (!project || !isAdmin) return null
 
-  const stats = {
-    fait: filtered.filter(p => p.status === 'FAIT').length,
-    enCours: filtered.filter(p => p.status === 'EN_COURS').length,
-    pasEncore: filtered.filter(p => p.status === 'PAS_ENCORE').length,
-    signale: filtered.filter(p => p.vsStatus === 'SIGNALE').length,
+  const handleEdit = async () => {
+    setSaving(true)
+    await onEdit(project.id, { status, writtenAt, pageCount, durationMin, comment })
+    setSaving(false)
+    onClose()
   }
 
-  if (filtered.length === 0) return null
-
   return (
-    <div className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-sm">
-      <button
-        onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between px-4 py-3 bg-gradient-to-r from-indigo-50 to-white hover:from-indigo-100 transition-colors"
-      >
-        <div className="flex items-center gap-2">
-          {open ? <ChevronDown className="w-4 h-4 text-indigo-600" /> : <ChevronRight className="w-4 h-4 text-indigo-600" />}
-          <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-semibold text-sm">
-            {redacteur.name.charAt(0).toUpperCase()}
+    <Dialog open={!!project} onOpenChange={onClose}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader><DialogTitle className="flex items-center gap-2"><Edit className="w-5 h-5" />Modifier le projet</DialogTitle></DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="bg-slate-50 rounded-lg p-3 space-y-2 text-sm">
+            <div className="flex justify-between"><span className="text-slate-500">Projet:</span><span className="font-medium">{project.name}</span></div>
           </div>
-          <span className="font-medium text-slate-800">{redacteur.name}</span>
-          <span className="text-xs text-slate-500">({filtered.length} projet{filtered.length > 1 ? 's' : ''})</span>
-        </div>
+          
+          <div className="space-y-1.5">
+            <Label>Statut</Label>
+            <Select value={status} onValueChange={setStatus}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="PAS_ENCORE">Pas encore</SelectItem>
+                <SelectItem value="EN_COURS">En cours</SelectItem>
+                <SelectItem value="FAIT">Fait</SelectItem>
+                <SelectItem value="SIGNALE">Signalé</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
-        <div className="flex items-center gap-2 mr-2">
-          {stats.fait > 0 && (
-            <span className="flex items-center gap-1 text-xs text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-              <CheckCircle2 className="w-3 h-3" />{stats.fait}
-            </span>
-          )}
-          {stats.enCours > 0 && (
-            <span className="flex items-center gap-1 text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
-              <Clock className="w-3 h-3" />{stats.enCours}
-            </span>
-          )}
-          {stats.pasEncore > 0 && (
-            <span className="flex items-center gap-1 text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
-              <Circle className="w-3 h-3" />{stats.pasEncore}
-            </span>
-          )}
-          {stats.signale > 0 && (
-            <span className="flex items-center gap-1 text-xs text-red-600 bg-red-50 px-2 py-0.5 rounded-full">
-              <AlertTriangle className="w-3 h-3" />{stats.signale}
-            </span>
-          )}
-        </div>
-      </button>
+          <div className="space-y-1.5">
+            <Label>Date de rédaction</Label>
+            <Input type="date" value={writtenAt} onChange={e => setWrittenAt(e.target.value)} />
+          </div>
 
-      {open && (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-100 bg-slate-50/50">
-                <th className="text-left py-2 px-3 text-xs font-medium text-slate-500">Projet</th>
-                <th className="text-left py-2 px-3 text-xs font-medium text-slate-500">Échéance</th>
-                <th className="text-center py-2 px-3 text-xs font-medium text-slate-500 hidden sm:table-cell">Type</th>
-                <th className="text-center py-2 px-3 text-xs font-medium text-slate-500 hidden lg:table-cell">Durée</th>
-                <th className="text-center py-2 px-3 text-xs font-medium text-slate-500 hidden sm:table-cell">Pages</th>
-                <th className="text-left py-2 px-3 text-xs font-medium text-slate-500 hidden md:table-cell">Date rédaction</th>
-                <th className="text-left py-2 px-3 text-xs font-medium text-slate-500">Statut</th>
-                <th className="py-2 px-3"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map(p => (
-                <ProjectRow 
-                  key={p.id} 
-                  project={p} 
-                  onEdit={onEdit} 
-                  onAction={onAction}
-                  isAdmin={true} 
-                />
-              ))}
-            </tbody>
-          </table>
+          <div className="space-y-1.5">
+            <Label>Nombre de pages</Label>
+            <Input type="number" value={pageCount} onChange={e => setPageCount(parseInt(e.target.value) || 0)} />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Durée (minutes)</Label>
+            <Input type="number" step="0.01" value={durationMin} onChange={e => setDurationMin(parseFloat(e.target.value) || 0)} />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Commentaire</Label>
+            <Textarea value={comment} onChange={e => setComment(e.target.value)} className="h-20" />
+          </div>
         </div>
-      )}
-    </div>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={onClose}>Annuler</Button>
+          <Button size="sm" onClick={handleEdit} disabled={saving}>{saving ? '...' : 'Enregistrer'}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// Header Triable
+function SortableHeader({ label, field, currentSort, onSort }: any) {
+  const isActive = currentSort.field === field
+  return (
+    <th className="text-left py-2 px-3 text-xs font-medium text-slate-500 whitespace-nowrap cursor-pointer hover:bg-slate-100" onClick={() => onSort(field)}>
+      <div className="flex items-center gap-1">
+        {label}
+        {isActive ? (currentSort.order === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />) : <ArrowUpDown className="w-3 h-3 opacity-30" />}
+      </div>
+    </th>
   )
 }
 
 export default function RedactionPage() {
-  const { data: session, status } = useSession()
+  const {  data:session, status } = useSession()
   const { isDemo, demoUser } = useDemoMode()
   const router = useRouter()
-  const [grouped, setGrouped] = useState<GroupedRedacteur[]>([])
-  const [myProjects, setMyProjects] = useState<Project[]>([])
-  const [stats, setStats] = useState<Stats>({ total: 0, pas_encore: 0, en_cours: 0, fait: 0, signale: 0 })
+  
+  // États
+  const [projects, setProjects] = useState<Project[]>([])
+  const [stats, setStats] = useState<Stats>({ total: 0, pas_encore: 0, en_cours: 0, fait: 0, en_retard: 0 })
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL')
-  const [sortBy, setSortBy] = useState('deadline')
-  const [sortOrder, setSortOrder] = useState('asc')
+  const [redacteurFilter, setRedacteurFilter] = useState<string>('all')
+  const [writtenAtFilter, setWrittenAtFilter] = useState<string>('')
+  const [deadlineFilter, setDeadlineFilter] = useState<string>('')
+  const [sortField, setSortField] = useState<SortField>('deadline')
+  const [sortOrder, setSortOrder] = useState<SortOrder>('asc')
   const [search, setSearch] = useState('')
-  const [editingProject, setEditingProject] = useState<Project | null>(null)
+  const [redacteurs, setRedacteurs] = useState<Redacteur[]>([])
+  const [viewingProject, setViewingProject] = useState<Project | null>(null)
+  const [startingProject, setStartingProject] = useState<Project | null>(null)
   const [completingProject, setCompletingProject] = useState<Project | null>(null)
+  const [editingProject, setEditingProject] = useState<Project | null>(null)  // ✅ CORRECTION 3
 
   const user: DemoUser | null = (session?.user as DemoUser) || demoUser || null
   const isAdmin = user?.role === 'ADMIN'
+  const userJobRole = (user as any)?.jobRole
 
+  // Debug
   useEffect(() => {
-    if (!isDemo && status === 'unauthenticated') router.push('/login')
-  }, [status, router, isDemo])
+    console.log('🔍 [REDACTION] State:', { status, user: user?.name, userJobRole, isAdmin, projectsCount: projects.length })
+  }, [status, user, userJobRole, isAdmin, projects.length])
 
-  const fetchData = useCallback(async () => {
-    try {
-      setLoading(true)
-      const params = new URLSearchParams()
-      if (statusFilter !== 'ALL' && statusFilter !== 'SIGNALE') {
-        params.set('status', statusFilter.toLowerCase())
-      } else if (statusFilter === 'SIGNALE') {
-        params.set('status', 'signale')
-      }
-      params.set('sortBy', sortBy)
-      params.set('sortOrder', sortOrder)
-
-      const res = await fetch(`/api/projects/redaction?${params.toString()}`)
-      if (!res.ok) throw new Error()
-      const data = await res.json()
-      
-      if (data.isAdmin) {
-        setGrouped(data.grouped || [])
-      } else {
-        setMyProjects(data.projects || [])
-      }
-      setStats(data.stats || { total: 0, pas_encore: 0, en_cours: 0, fait: 0, signale: 0 })
-    } catch {
-      toast.error('Erreur de chargement')
-    } finally {
-      setLoading(false)
-    }
-  }, [statusFilter, sortBy, sortOrder])
-
+  // Charger les Rédacteurs
   useEffect(() => {
-    if (user) fetchData()
-  }, [user, fetchData])
-
-  const handleAction = async (project: Project, action: 'commencer' | 'completer') => {
-    if (action === 'commencer') {
-      try {
-        const res = await fetch('/api/projects/redaction', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            projectId: project.id,
-            action: 'commencer',
-            comment: project.comment
-          })
-        })
-        
-        if (res.ok) {
-          toast.success('Projet commencé')
-          fetchData()
+    console.log('🔍 [REDACTION] Loading redacteurs...')
+    fetch('/api/users?jobRole=REDACTEUR')
+      .then(res => {
+        console.log('📡 [REDACTION] Redacteurs response status:', res.status)
+        return res.json()
+      })
+      .then(data => {
+        console.log('📦 [REDACTION] Redacteurs ', data)
+        if (Array.isArray(data)) {
+          setRedacteurs(data)
         } else {
-          toast.error('Erreur lors de l\'action')
+          setRedacteurs([])
         }
-      } catch {
-        toast.error('Erreur de connexion')
-      }
-    } else if (action === 'completer') {
-      setCompletingProject(project)
-    }
-  }
+      })
+      .catch(err => {
+        console.error('❌ [REDACTION] Error loading redacteurs:', err)
+        setRedacteurs([])
+      })
+  }, [])
 
-  const handleComplete = async (projectId: string, pageCount: number, comment: string, writtenAt: string) => {
+  // Charger les projets
+  useEffect(() => {
+    if (!user || status !== 'authenticated') {
+      console.log(' [REDACTION] Waiting for user authentication...', { user, status })
+      return
+    }
+
+    console.log('🔍 [REDACTION] Fetching projects...')
+    setLoading(true)
+    
+    const params = new URLSearchParams()
+    if (statusFilter !== 'ALL') params.set('status', statusFilter.toLowerCase())
+    
+    fetch(`/api/projects/redaction?${params.toString()}`)
+      .then(res => {
+        console.log('📡 [REDACTION] Response status:', res.status)
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        return res.json()
+      })
+      .then(data => {
+        console.log('📦 [REDACTION] Projects ', { count: data.projects?.length, stats: data.stats })
+        setProjects(data.projects || [])
+        setStats(data.stats || { total: 0, pas_encore: 0, en_cours: 0, fait: 0, en_retard: 0 })
+      })
+      .catch(err => {
+        console.error('❌ [REDACTION] Error:', err)
+        toast.error('Erreur chargement projets')
+        setProjects([])
+        setStats({ total: 0, pas_encore: 0, en_cours: 0, fait: 0, en_retard: 0 })
+      })
+      .finally(() => {
+        setLoading(false)
+      })
+  }, [user, status, statusFilter])
+
+  // Handlers
+  const handleAction = async (project: Project, action: string) => {
+    if (action === 'commencer') { setStartingProject(project); return }
+    
     try {
       const res = await fetch('/api/projects/redaction', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          projectId,
-          action: 'completer',
-          pageCount,
-          comment,
-          writtenAt
-        })
+        body: JSON.stringify({ projectId: project.id, action, comment: project.comment })
       })
-      
       if (res.ok) {
-        toast.success('Projet complété')
-        fetchData()
-        setCompletingProject(null)
+        toast.success('Action réussie')
+        setLoading(true)
+        const params = new URLSearchParams()
+        if (statusFilter !== 'ALL') params.set('status', statusFilter.toLowerCase())
+        const res2 = await fetch(`/api/projects/redaction?${params.toString()}`)
+        const data = await res2.json()
+        setProjects(data.projects || [])
+        setStats(data.stats || { total: 0, pas_encore: 0, en_cours: 0, fait: 0, en_retard: 0 })
+        setLoading(false)
       } else {
-        toast.error('Erreur lors de la complétion')
+        toast.error('Erreur action')
       }
-    } catch {
-      toast.error('Erreur de connexion')
-    }
+    } catch { toast.error('Erreur connexion') }
   }
 
-  const handleSave = async (id: string, data: SaveData) => {
+  const handleStart = async (projectId: string, comment: string) => {
     try {
       const res = await fetch('/api/projects/redaction', {
-        method: 'PATCH',
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId: id, ...data }),
+        body: JSON.stringify({ projectId, action: 'commencer', comment })
       })
-      if (!res.ok) throw new Error()
-      toast.success('Projet mis à jour')
-      fetchData()
-    } catch {
-      toast.error('Erreur lors de la mise à jour')
-    }
+      if (res.ok) {
+        toast.success('Projet commencé')
+        setLoading(true)
+        const params = new URLSearchParams()
+        if (statusFilter !== 'ALL') params.set('status', statusFilter.toLowerCase())
+        const res2 = await fetch(`/api/projects/redaction?${params.toString()}`)
+        const data = await res2.json()
+        setProjects(data.projects || [])
+        setStats(data.stats || { total: 0, pas_encore: 0, en_cours: 0, fait: 0, en_retard: 0 })
+        setLoading(false)
+        setStartingProject(null)
+      } else { toast.error('Erreur démarrage') }
+    } catch { toast.error('Erreur connexion') }
   }
 
-  const filteredMyProjects = myProjects.filter(p => {
-    const matchStatus = statusFilter === 'ALL' || p.status === statusFilter || (statusFilter === 'SIGNALE' && p.vsStatus === 'SIGNALE')
-    const matchSearch = !search ||
-      p.seriesName.toLowerCase().includes(search.toLowerCase()) ||
-      p.projectCode?.toLowerCase().includes(search.toLowerCase()) ||
-      p.broadcastChannel?.toLowerCase().includes(search.toLowerCase())
-    return matchStatus && matchSearch
-  })
-
-  const allProjects = grouped.flatMap(g => g.projects)
-  const globalStats = isAdmin ? {
-    total: allProjects.length,
-    fait: allProjects.filter(p => p.status === 'FAIT').length,
-    enCours: allProjects.filter(p => p.status === 'EN_COURS').length,
-    pasEncore: allProjects.filter(p => p.status === 'PAS_ENCORE').length,
-    signale: allProjects.filter(p => p.vsStatus === 'SIGNALE').length,
-  } : {
-    total: myProjects.length,
-    fait: myProjects.filter(p => p.status === 'FAIT').length,
-    enCours: myProjects.filter(p => p.status === 'EN_COURS').length,
-    pasEncore: myProjects.filter(p => p.status === 'PAS_ENCORE').length,
-    signale: myProjects.filter(p => p.vsStatus === 'SIGNALE').length,
+  const handleComplete = async (projectId: string, comment: string) => {
+    try {
+      const res = await fetch('/api/projects/redaction', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId, action: 'fait', comment })
+      })
+      if (res.ok) {
+        toast.success('Projet complété')
+        setLoading(true)
+        const params = new URLSearchParams()
+        if (statusFilter !== 'ALL') params.set('status', statusFilter.toLowerCase())
+        const res2 = await fetch(`/api/projects/redaction?${params.toString()}`)
+        const data = await res2.json()
+        setProjects(data.projects || [])
+        setStats(data.stats || { total: 0, pas_encore: 0, en_cours: 0, fait: 0, en_retard: 0 })
+        setLoading(false)
+        setCompletingProject(null)
+      } else { toast.error('Erreur complétion') }
+    } catch { toast.error('Erreur connexion') }
   }
 
-  if ((status === 'loading' && !isDemo) || loading) {
+  // ✅ CORRECTION 3: Handler pour modifier un projet (Admin)
+  const handleEdit = async (projectId: string, data: any) => {
+    try {
+      const res = await fetch('/api/projects/redaction', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          projectId, 
+          action: 'update',
+          status: data.status,
+          writtenAt: data.writtenAt ? new Date(data.writtenAt).toISOString() : null,
+          pageCount: data.pageCount,
+          durationMin: data.durationMin,
+          comment: data.comment
+        })
+      })
+      if (res.ok) {
+        toast.success('Projet modifié')
+        setLoading(true)
+        const params = new URLSearchParams()
+        if (statusFilter !== 'ALL') params.set('status', statusFilter.toLowerCase())
+        const res2 = await fetch(`/api/projects/redaction?${params.toString()}`)
+        const data2 = await res2.json()
+        setProjects(data2.projects || [])
+        setStats(data2.stats || { total: 0, pas_encore: 0, en_cours: 0, fait: 0, en_retard: 0 })
+        setLoading(false)
+        setEditingProject(null)
+      } else { toast.error('Erreur modification') }
+    } catch { toast.error('Erreur connexion') }
+  }
+
+  const handleSort = (field: SortField) => {
+    setSortField(field)
+    setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')
+  }
+
+  // Filtrage et tri
+  const filteredProjects = [...projects]
+    .filter(p => {
+      if (search && !p.name.toLowerCase().includes(search.toLowerCase()) && !p.projectCode?.toLowerCase().includes(search.toLowerCase())) return false
+      if (redacteurFilter !== 'all' && p.redacteurId !== redacteurFilter) return false
+      if (writtenAtFilter && (!p.writtenAt || !p.writtenAt.startsWith(writtenAtFilter))) return false
+      if (deadlineFilter && (!p.deadline || !p.deadline.startsWith(deadlineFilter))) return false
+      return true
+    })
+    .sort((a, b) => {
+      let cmp = 0
+      switch (sortField) {
+        case 'name': cmp = a.name.localeCompare(b.name); break
+        case 'deadline': cmp = new Date(a.deadline).getTime() - new Date(b.deadline).getTime(); break
+        case 'createdAt': cmp = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(); break
+        case 'writtenAt': cmp = new Date(a.writtenAt || 0).getTime() - new Date(b.writtenAt || 0).getTime(); break
+        case 'durationMin': cmp = (a.durationMin || 0) - (b.durationMin || 0); break
+      }
+      return sortOrder === 'asc' ? cmp : -cmp
+    })
+
+  // ✅ CORRECTION 1: Stats calculées sur filteredProjects (pas projects)
+  const filteredStats = {
+    total: filteredProjects.length,
+    pas_encore: filteredProjects.filter((p: any) => p.status === 'PAS_ENCORE').length,
+    en_cours: filteredProjects.filter((p: any) => p.status === 'EN_COURS').length,
+    fait: filteredProjects.filter((p: any) => p.status === 'FAIT').length,
+    en_retard: filteredProjects.filter((p: any) => {
+      if (!p.deadline) return false
+      return new Date(p.deadline) < new Date() && p.status !== 'FAIT'
+    }).length,
+  }
+
+  // Total Minutes
+  const totalMinutes = Math.round(filteredProjects.reduce((sum, p) => sum + (p.durationMin || 0), 0))
+
+  // Loading screen
+  if (loading && projects.length === 0) {
     return (
       <DashboardLayout>
-        <div className="min-h-[60vh] flex items-center justify-center">
+        <div className="min-h-[60vh] flex flex-col items-center justify-center gap-4">
           <div className="animate-spin rounded-full h-12 w-12 border-4 border-indigo-200 border-t-indigo-600" />
+          <p className="text-slate-500">Chargement...</p>
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  // Access check
+  if (!isAdmin && !['REDACTEUR', 'NARRATEUR', 'LIVREUR'].includes(userJobRole)) {
+    return (
+      <DashboardLayout>
+        <div className="min-h-[60vh] flex flex-col items-center justify-center text-center gap-4">
+          <AlertCircle className="w-12 h-12 text-red-500" />
+          <h2 className="text-xl font-bold">Accès réservé à la rédaction</h2>
+          <p className="text-slate-500">Ton rôle: {userJobRole || 'Aucun'}</p>
+          <Button onClick={() => router.push('/dashboard')}>Retour</Button>
         </div>
       </DashboardLayout>
     )
@@ -740,193 +501,160 @@ export default function RedactionPage() {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-              <FileText className="h-6 w-6 text-indigo-600" />
-              Rédaction
-            </h1>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              {isAdmin
-                ? `Dispatch — ${grouped.length} rédacteur${grouped.length > 1 ? 's' : ''}`
-                : 'Mes projets assignés'}
-            </p>
-          </div>
+        {/* Header */}
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            <Package className="h-6 w-6 text-indigo-600" />Rédaction
+          </h1>
+          <p className="text-sm text-muted-foreground">{user?.name}</p>
         </div>
 
-        <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-4">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm text-slate-500">Total</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-2xl font-bold">{stats.total}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm text-slate-500">Pas encore</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-2xl font-bold text-slate-600">{stats.pas_encore}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm text-slate-500">En cours</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-2xl font-bold text-blue-600">{stats.en_cours}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm text-slate-500">Fait</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-2xl font-bold text-emerald-600">{stats.fait}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm text-slate-500 flex items-center gap-1">
-                <AlertTriangle className="w-3 h-3" /> Signalés
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-2xl font-bold text-red-600">{stats.signale}</p>
-            </CardContent>
-          </Card>
+        {/* ✅ CORRECTION 1: Stats avec filteredStats (se mettent à jour avec les filtres) */}
+        <div className="grid sm:grid-cols-2 lg:grid-cols-6 gap-4">
+          {[
+            { label: 'Total', value: filteredStats.total },
+            { label: 'Pas encore', value: filteredStats.pas_encore, color: 'text-slate-600' },
+            { label: 'En cours', value: filteredStats.en_cours, color: 'text-blue-600' },
+            { label: 'Fait', value: filteredStats.fait, color: 'text-emerald-600' },
+            { label: 'En retard', value: filteredStats.en_retard, color: 'text-red-600' },
+            { label: 'Total Minutes', value: totalMinutes, color: 'text-indigo-600', icon: Clock },
+          ].map((s, i) => (
+            <Card key={i}>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm text-slate-500 flex items-center gap-1">
+                  {s.icon && <s.icon className="w-3 h-3" />}
+                  {s.label}
+                </CardTitle>
+              </CardHeader>
+              <CardContent><p className={`text-2xl font-bold ${s.color || ''}`}>{s.value}</p></CardContent>
+            </Card>
+          ))}
         </div>
 
+        {/* Filtres */}
         <div className="flex flex-wrap gap-3">
           <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as StatusFilter)}>
-            <SelectTrigger className="w-40">
-              <SelectValue placeholder="Statut" />
-            </SelectTrigger>
+            <SelectTrigger className="w-40"><SelectValue placeholder="Statut" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="ALL">Tous</SelectItem>
               <SelectItem value="PAS_ENCORE">Pas encore</SelectItem>
               <SelectItem value="EN_COURS">En cours</SelectItem>
               <SelectItem value="FAIT">Fait</SelectItem>
-              <SelectItem value="SIGNALE">Signalés</SelectItem>
-              <SelectItem value="ANNULE">Annulé</SelectItem>
+              <SelectItem value="EN_RETARD">En retard</SelectItem>
             </SelectContent>
           </Select>
 
-          <Select value={sortBy} onValueChange={setSortBy}>
-            <SelectTrigger className="w-40">
-              <SelectValue placeholder="Trier par" />
-            </SelectTrigger>
+          <Select value={redacteurFilter} onValueChange={setRedacteurFilter}>
+            <SelectTrigger className="w-40"><SelectValue placeholder="Rédacteur" /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="deadline">Échéance</SelectItem>
-              <SelectItem value="createdAt">Date création</SelectItem>
+              <SelectItem value="all">Tous</SelectItem>
+              {redacteurs.map(r => (
+                <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+              ))}
             </SelectContent>
           </Select>
 
-          <Select value={sortOrder} onValueChange={setSortOrder}>
-            <SelectTrigger className="w-32">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="asc">Croissant</SelectItem>
-              <SelectItem value="desc">Décroissant</SelectItem>
-            </SelectContent>
-          </Select>
+          <Input type="date" value={writtenAtFilter} onChange={e => setWrittenAtFilter(e.target.value)} 
+                 className="w-40 h-9" placeholder="Date rédaction" title="Filtrer par date de rédaction" />
+
+          <Input type="date" value={deadlineFilter} onChange={e => setDeadlineFilter(e.target.value)} 
+                 className="w-40 h-9" placeholder="Échéance" title="Filtrer par date d'échéance" />
 
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Rechercher..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              className="pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-full focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-200 bg-white w-44"
-            />
+            <input type="text" placeholder="Rechercher..." value={search} onChange={e => setSearch(e.target.value)}
+                   className="pl-8 pr-3 py-1.5 text-xs border rounded-full bg-white w-44" />
           </div>
         </div>
 
-        {isAdmin && (
-          <div className="space-y-4">
-            {grouped.length === 0 ? (
-              <EmptyState />
-            ) : (
-              grouped.map(g => (
-                <RedacteurGroup
-                  key={g.redacteur.id}
-                  redacteur={g.redacteur}
-                  projects={g.projects}
-                  onEdit={setEditingProject}
-                  onAction={handleAction}
-                  statusFilter={statusFilter}
-                  search={search}
-                />
-              ))
-            )}
-          </div>
-        )}
-
-        {!isAdmin && (
-          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
-            {filteredMyProjects.length === 0 ? (
-              <EmptyState />
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-100 bg-slate-50/50">
-                      <th className="text-left py-2.5 px-4 text-xs font-medium text-slate-500">Projet</th>
-                      <th className="text-left py-2.5 px-3 text-xs font-medium text-slate-500">Échéance</th>
-                      <th className="text-center py-2.5 px-3 text-xs font-medium text-slate-500 hidden sm:table-cell">Type</th>
-                      <th className="text-center py-2.5 px-3 text-xs font-medium text-slate-500 hidden lg:table-cell">Durée</th>
-                      <th className="text-center py-2.5 px-3 text-xs font-medium text-slate-500 hidden sm:table-cell">Pages</th>
-                      <th className="text-left py-2.5 px-3 text-xs font-medium text-slate-500 hidden md:table-cell">Date rédaction</th>
-                      <th className="text-left py-2.5 px-3 text-xs font-medium text-slate-500">Statut</th>
-                      <th className="py-2.5 px-3"></th>
+        {/* Table */}
+        <div className="bg-white rounded-xl border overflow-hidden">
+          {filteredProjects.length === 0 ? (
+            <div className="text-center py-12">
+              <Package className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+              <h3 className="text-lg font-medium">Aucun projet</h3>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-slate-50/50">
+                    <SortableHeader label="Projet" field="name" currentSort={{ field: sortField, order: sortOrder }} onSort={handleSort} />
+                    <SortableHeader label="Échéance" field="deadline" currentSort={{ field: sortField, order: sortOrder }} onSort={handleSort} />
+                    <th className="text-center py-2 px-3 text-xs font-medium text-slate-500">Type</th>
+                    <SortableHeader label="Durée" field="durationMin" currentSort={{ field: sortField, order: sortOrder }} onSort={handleSort} />
+                    <th className="text-left py-2 px-3 text-xs font-medium text-slate-500 hidden md:table-cell">Rédacteur</th>
+                    {/* ✅ CORRECTION 2: Colonne Date de rédaction */}
+                    <th className="text-left py-2 px-3 text-xs font-medium text-slate-500 hidden lg:table-cell">Date rédaction</th>
+                    <th className="text-left py-2 px-3 text-xs font-medium text-slate-500">Statut</th>
+                    <th className="py-2 px-3"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredProjects.map(p => (
+                    <tr key={p.id} className="group border-b hover:bg-slate-50/50">
+                      <td className="py-2.5 px-3 max-w-[250px]">
+                        <div className="font-medium line-clamp-2" title={p.name}>{p.name}</div>
+                      </td>
+                      <td className="py-2.5 px-3 whitespace-nowrap">{displayDateLocal(p.deadline)}</td>
+                      <td className="py-2.5 px-3 whitespace-nowrap text-center"><Badge variant="outline" className="text-xs">{getProjectTypeLabel(p.projectType)}</Badge></td>
+                      <td className="py-2.5 px-3 whitespace-nowrap text-center">{p.durationMin ? `${Math.round(p.durationMin)} min` : '-'}</td>
+                      <td className="py-2.5 px-3 whitespace-nowrap hidden md:table-cell">{p.User?.name || '-'}</td>
+                      {/* ✅ CORRECTION 2: Affichage Date de rédaction */}
+                      <td className="py-2.5 px-3 whitespace-nowrap hidden lg:table-cell">{displayDateLocal(p.writtenAt)}</td>
+                      <td className="py-2.5 px-3"><StatusBadge status={p.status} /></td>
+                      <td className="py-2.5 px-3 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          {p.status !== 'FAIT' && <Button size="sm" variant="outline" className="h-7" onClick={() => handleAction(p, 'commencer')}><PlayCircle className="w-3.5 h-3.5" /></Button>}
+                          {p.status !== 'FAIT' && <Button size="sm" variant="outline" className="h-7" onClick={() => handleAction(p, 'fait')}><CheckCircle2 className="w-3.5 h-3.5" /></Button>}
+                          <Button variant="ghost" size="sm" className="h-7" onClick={() => setViewingProject(p)}><Eye className="w-3.5 h-3.5" /></Button>
+                          {/* ✅ CORRECTION 3: Bouton Modifier (Admin seulement) */}
+                          {isAdmin && (
+                            <Button variant="ghost" size="sm" className="h-7 text-amber-600 hover:text-amber-700" onClick={() => setEditingProject(p)}>
+                              <Edit className="w-3.5 h-3.5" />
+                            </Button>
+                          )}
+                        </div>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {filteredMyProjects.map(p => (
-                      <ProjectRow 
-                        key={p.id} 
-                        project={p} 
-                        onEdit={setEditingProject} 
-                        onAction={handleAction}
-                        isAdmin={false} 
-                      />
-                    ))}
-                  </tbody>
-                </table>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* Modals */}
+        {viewingProject && (
+          <Dialog open={!!viewingProject} onOpenChange={() => setViewingProject(null)}>
+            <DialogContent className="max-w-2xl">
+              <DialogHeader><DialogTitle>{viewingProject.name}</DialogTitle></DialogHeader>
+              <div className="space-y-3 py-2">
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div><span className="text-slate-500">Rédacteur:</span> <span className="font-medium">{viewingProject.User?.name || '-'}</span></div>
+                  <div><span className="text-slate-500">Durée:</span> <span className="font-medium">{viewingProject.durationMin ? Math.round(viewingProject.durationMin) : 0} min</span></div>
+                  <div><span className="text-slate-500">Échéance:</span> <span className="font-medium">{displayDateLocal(viewingProject.deadline)}</span></div>
+                  <div><span className="text-slate-500">Date rédaction:</span> <span className="font-medium">{displayDateLocal(viewingProject.writtenAt)}</span></div>
+                </div>
               </div>
-            )}
-          </div>
+              <DialogFooter><Button variant="outline" size="sm" onClick={() => setViewingProject(null)}>Fermer</Button></DialogFooter>
+            </DialogContent>
+          </Dialog>
         )}
 
-        <EditModal
-          project={editingProject}
-          onClose={() => setEditingProject(null)}
-          onSave={handleSave}
-          isAdmin={isAdmin}
-        />
+        {/* ✅ CORRECTION 3: Modal Modifier */}
+        {editingProject && (
+          <EditModal 
+            project={editingProject} 
+            onClose={() => setEditingProject(null)} 
+            onEdit={handleEdit}
+            isAdmin={isAdmin}
+          />
+        )}
 
-        <CompleteModal
-          project={completingProject}
-          onClose={() => setCompletingProject(null)}
-          onComplete={handleComplete}
-        />
-
+        <StartModal project={startingProject} onClose={() => setStartingProject(null)} onStart={handleStart} />
+        <CompleteModal project={completingProject} onClose={() => setCompletingProject(null)} onComplete={handleComplete} />
       </div>
     </DashboardLayout>
-  )
-}
-
-function EmptyState() {
-  return (
-    <div className="text-center py-12">
-      <FileText className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-      <h3 className="text-lg font-medium text-slate-700 mb-1">Aucun projet de rédaction</h3>
-      <p className="text-sm text-slate-500">Les projets assignés apparaîtront ici</p>
-    </div>
   )
 }

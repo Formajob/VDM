@@ -81,6 +81,183 @@ export async function POST(request: Request) {
     const body = await request.json()
     const now = new Date()
 
+    // ✅ NOUVELLE LOGIQUE : Dupliquer le planning de toute l'équipe
+    if (body.action === 'duplicateTeam') {
+      console.log('🔄 Duplicating team planning from', body.sourceWeekStart, 'to', body.targetWeekStart)
+
+      // 1. Récupérer tous les plannings de la semaine source
+      const { data: sourcePlannings, error: sourceError } = await supabaseAdmin
+        .from('Planning')
+        .select('*')
+        .eq('weekstart', body.sourceWeekStart)
+
+      if (sourceError || !sourcePlannings || sourcePlannings.length === 0) {
+        console.error('❌ Source plannings not found:', sourceError)
+        return NextResponse.json({ error: 'Aucun planning trouvé pour cette semaine' }, { status: 404 })
+      }
+
+      console.log(`📋 Found ${sourcePlannings.length} plannings to duplicate`)
+
+      // 2. Pour chaque planning, dupliquer vers la semaine cible
+      const results = []
+      const errors = []
+
+      for (const sourcePlanning of sourcePlannings) {
+        try {
+          // Vérifier si un planning existe déjà pour cet utilisateur la semaine cible
+          const { data: existingTarget, error: targetCheckError } = await supabaseAdmin
+            .from('Planning')
+            .select('*')
+            .eq('userid', sourcePlanning.userid)
+            .eq('weekstart', body.targetWeekStart)
+            .single()
+
+          if (targetCheckError && targetCheckError.code !== 'PGRST116') {
+            throw targetCheckError
+          }
+
+          // Si existe, mettre à jour
+          if (existingTarget) {
+            const { data, error } = await supabaseAdmin
+              .from('Planning')
+              .update({
+                monday: sourcePlanning.monday,
+                tuesday: sourcePlanning.tuesday,
+                wednesday: sourcePlanning.wednesday,
+                thursday: sourcePlanning.thursday,
+                friday: sourcePlanning.friday,
+                saturday: sourcePlanning.saturday,
+                sunday: sourcePlanning.sunday,
+                updatedat: now.toISOString(),
+              })
+              .eq('id', existingTarget.id)
+              .select()
+              .single()
+
+            if (error) throw error
+            results.push(data)
+          } 
+          // Sinon, créer
+          else {
+            const { data, error } = await supabaseAdmin
+              .from('Planning')
+              .insert({
+                id: nanoid(),
+                userid: sourcePlanning.userid,
+                weekstart: body.targetWeekStart,
+                weekend: body.targetWeekEnd,
+                monday: sourcePlanning.monday,
+                tuesday: sourcePlanning.tuesday,
+                wednesday: sourcePlanning.wednesday,
+                thursday: sourcePlanning.thursday,
+                friday: sourcePlanning.friday,
+                saturday: sourcePlanning.saturday,
+                sunday: sourcePlanning.sunday,
+                createdat: now.toISOString(),
+                updatedat: now.toISOString(),
+              })
+              .select()
+              .single()
+
+            if (error) throw error
+            results.push(data)
+          }
+        } catch (err) {
+          console.error('❌ Error duplicating for user', sourcePlanning.userid, err)
+          errors.push({ userid: sourcePlanning.userid, error: err })
+        }
+      }
+
+      console.log(`✅ Successfully duplicated ${results.length} plannings`)
+      if (errors.length > 0) {
+        console.error(`❌ ${errors.length} errors occurred`)
+      }
+
+      return NextResponse.json({ 
+        success: true, 
+        duplicated: results.length,
+        errors: errors.length,
+        data: results 
+      }, { status: 200 })
+    }
+
+    // ✅ LOGIQUE POUR DUPLIQUER UN SEUL UTILISATEUR
+    if (body.action === 'duplicate') {
+      console.log('🔄 Duplicating planning from', body.sourceWeekStart, 'to', body.targetWeekStart)
+
+      const { data: sourcePlanning, error: sourceError } = await supabaseAdmin
+        .from('Planning')
+        .select('*')
+        .eq('userid', body.userId)
+        .eq('weekstart', body.sourceWeekStart)
+        .single()
+
+      if (sourceError || !sourcePlanning) {
+        console.error('❌ Source planning not found:', sourceError)
+        return NextResponse.json({ error: 'Planning source introuvable' }, { status: 404 })
+      }
+
+      const { data: existingTarget, error: targetCheckError } = await supabaseAdmin
+        .from('Planning')
+        .select('*')
+        .eq('userid', body.userId)
+        .eq('weekstart', body.targetWeekStart)
+        .single()
+
+      if (targetCheckError && targetCheckError.code !== 'PGRST116') {
+        console.error('❌ Error checking target week:', targetCheckError)
+        throw targetCheckError
+      }
+
+      if (existingTarget) {
+        console.log('🔄 Updating existing planning for target week')
+        const { data, error } = await supabaseAdmin
+          .from('Planning')
+          .update({
+            monday: sourcePlanning.monday,
+            tuesday: sourcePlanning.tuesday,
+            wednesday: sourcePlanning.wednesday,
+            thursday: sourcePlanning.thursday,
+            friday: sourcePlanning.friday,
+            saturday: sourcePlanning.saturday,
+            sunday: sourcePlanning.sunday,
+            updatedat: now.toISOString(),
+          })
+          .eq('id', existingTarget.id)
+          .select()
+          .single()
+
+        if (error) throw error
+        console.log('✅ Planning duplicated successfully (updated)')
+        return NextResponse.json(data, { status: 200 })
+      }
+
+      const { data, error } = await supabaseAdmin
+        .from('Planning')
+        .insert({
+          id: nanoid(),
+          userid: body.userId,
+          weekstart: body.targetWeekStart,
+          weekend: body.targetWeekEnd,
+          monday: sourcePlanning.monday,
+          tuesday: sourcePlanning.tuesday,
+          wednesday: sourcePlanning.wednesday,
+          thursday: sourcePlanning.thursday,
+          friday: sourcePlanning.friday,
+          saturday: sourcePlanning.saturday,
+          sunday: sourcePlanning.sunday,
+          createdat: now.toISOString(),
+          updatedat: now.toISOString(),
+        })
+        .select()
+        .single()
+
+      if (error) throw error
+      console.log('✅ Planning duplicated successfully (created)')
+      return NextResponse.json(data, { status: 201 })
+    }
+
+    // ✅ LOGIQUE ORIGINALE : Créer un planning normal
     const { data, error } = await supabaseAdmin
       .from('Planning')
       .insert({
@@ -109,7 +286,7 @@ export async function POST(request: Request) {
   }
 }
 
-// ✅ NOUVELLE ROUTE PUT POUR METTRE À JOUR LE PLANNING
+// ✅ ROUTE PUT POUR METTRE À JOUR LE PLANNING
 export async function PUT(request: Request) {
   try {
     const session = await getServerSession(authOptions)

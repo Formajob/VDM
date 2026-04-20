@@ -88,9 +88,10 @@ useEffect(() => {
     try {
       // Fetch members
       const usersRes = await fetch('/api/users')
-      const users = await usersRes.json()
-      const membersList = users.filter((u: any) => u.role === 'MEMBER')
-      setMembers(membersList)
+const usersData = await usersRes.json()
+const users = usersData.users || []  // ← ← ← Extraire l'array depuis l'objet
+const membersList = users.filter((u: any) => u.role === 'MEMBER')
+setMembers(membersList)
       
       // Fetch today's attendance
       const today = new Date().toISOString().split('T')[0]
@@ -369,107 +370,7 @@ const getFilteredMemberIds = (): string[] => {
           </Card>
         </div>
 
-        {/* Projets par département */}
-        <div>
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-            <h2 className="text-lg font-semibold flex items-center gap-2">
-              <Briefcase className="h-5 w-5 text-indigo-500" />Projets par département
-            </h2>
-            <div className="flex gap-2">
-              <Select value={deptFilter} onValueChange={(v) => setDeptFilter(v as DepartmentFilter)}>
-                <SelectTrigger className="w-[180px] border-indigo-200">
-                  <SelectValue placeholder="Département" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="TOUS">Tous</SelectItem>
-                  <SelectItem value="REDACTION">Rédaction</SelectItem>
-                  <SelectItem value="NARRATION">Narration</SelectItem>
-                  <SelectItem value="MIXAGE">Mixage</SelectItem>
-                  <SelectItem value="LIVRAISON">Livraison</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as StatusFilter)}>
-                <SelectTrigger className="w-[180px] border-indigo-200">
-                  <SelectValue placeholder="Statut" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ALL">Tous les statuts</SelectItem>
-                  <SelectItem value="PAS_ENCORE">Pas encore</SelectItem>
-                  <SelectItem value="EN_COURS">En cours</SelectItem>
-                  <SelectItem value="FAIT">Faits</SelectItem>
-                  <SelectItem value="ANNULE">Annulés</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {/* Projects Grid */}
-          <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
-            {projects.map((project) => (
-              <Card key={project.id} className="flex flex-col border-2 border-indigo-100 hover:border-indigo-300 transition-all hover:shadow-xl">
-                <CardHeader>
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1">
-                      <CardTitle className="text-base line-clamp-1">{project.name}</CardTitle>
-                      <CardDescription className="mt-1 text-xs">
-                        {[project.seriesName, project.season && `S${project.season}`, project.episodeNumber && `Ép.${project.episodeNumber}`].filter(Boolean).join(' · ')}
-                      </CardDescription>
-                      {project.clientName && <p className="text-xs text-muted-foreground mt-0.5">{project.clientName}</p>}
-                    </div>
-                    {getStatusBadge(project.status)}
-                  </div>
-                </CardHeader>
-                <CardContent className="flex-1 space-y-3">
-                  <div className="flex gap-2 flex-wrap">
-                    {getWorkflowBadge(project.workflowStep)}
-                    {project.broadcastChannel && <Badge variant="outline" className="text-xs">{project.broadcastChannel}</Badge>}
-                  </div>
-                  <div className="grid grid-cols-2 gap-3 text-sm">
-                    {project.pageCount && (
-                      <div>
-                        <p className="text-muted-foreground text-xs">Pages</p>
-                        <p className="font-semibold">{project.pageCount}</p>
-                      </div>
-                    )}
-                    <div>
-                      <p className="text-muted-foreground text-xs">Date limite</p>
-                      <p className="font-semibold">
-                        {new Date(project.deadline).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
-                      </p>
-                    </div>
-                  </div>
-                  {getDeadlineBadge(project.deadline)}
-                </CardContent>
-                <CardFooter className="flex gap-2 pt-4">
-                  {project.status !== 'FAIT' && project.status !== 'ANNULE' && (
-                    <Button variant="outline" size="sm" className="flex-1 gap-1 border-emerald-300 hover:bg-emerald-50 text-emerald-700"
-                      onClick={() => updateProjectStatus(project.id, 'FAIT')}>
-                      <CheckCircle2 className="h-3 w-3" />Marquer fait
-                    </Button>
-                  )}
-                  {project.status === 'PAS_ENCORE' && (
-                    <Button variant="outline" size="sm" className="flex-1 gap-1 border-amber-300 hover:bg-amber-50 text-amber-700"
-                      onClick={() => updateProjectStatus(project.id, 'EN_COURS')}>
-                      <Clock className="h-3 w-3" />Commencer
-                    </Button>
-                  )}
-                </CardFooter>
-              </Card>
-            ))}
-          </div>
-
-          {projects.length === 0 && (
-            <Card className="p-12 border-2 border-dashed border-indigo-200">
-              <div className="text-center space-y-4">
-                <FileText className="h-12 w-12 text-indigo-300 mx-auto" />
-                <h3 className="text-lg font-medium">Aucun projet trouvé</h3>
-                <p className="text-muted-foreground">
-                  {statusFilter !== 'ALL' || deptFilter !== 'TOUS' ? 'Essayez de changer les filtres' : "Vous n'avez pas encore de projet assigné"}
-                </p>
-              </div>
-            </Card>
-          )}
-        </div>
+       
       </div>
     </DashboardLayout>
   )

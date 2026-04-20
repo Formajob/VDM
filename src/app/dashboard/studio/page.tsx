@@ -1,33 +1,18 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState } from 'react'
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import DashboardLayout from '@/components/layout/DashboardLayout'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import {
-  Package, PlayCircle, CheckCircle2, AlertTriangle, Eye,
-  AlertCircle, Search, Circle, Clock, Users,
-} from 'lucide-react'
+import { Package, PlayCircle, CheckCircle2, AlertTriangle, Eye, AlertCircle, Search, Circle, Clock, Users, Calendar, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import { toast } from 'sonner'
 import { useDemoMode, DemoUser } from '@/hooks/useDemoMode'
 
@@ -38,7 +23,7 @@ interface Project {
   season: string | null
   episodeNumber: string | null
   broadcastChannel: string | null
-  projectCode: string | null
+  projectCode: string | null  // ✅ AJOUTÉ
   projectType: string | null
   deadline: string
   durationMin: number | null
@@ -62,30 +47,33 @@ interface TechSon {
 
 interface Stats {
   total: number
+  pas_encore: number
   en_attente: number
   en_cours: number
   fait: number
   signale: number
 }
 
-type StatusFilter = 'ALL' | 'EN_ATTENTE' | 'EN_COURS' | 'FAIT' | 'SIGNALE'
+type StatusFilter = 'ALL' | 'PAS_ENCORE' | 'EN_ATTENTE' | 'EN_COURS' | 'FAIT' | 'SIGNALE'
+type SortField = 'deadline' | 'mixedAt' | 'name' | 'durationMin'
+type SortOrder = 'asc' | 'desc'
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: any }> = {
-  FAIT:      { label: 'Fait',       color: 'bg-emerald-100 text-emerald-700 border-emerald-200', icon: CheckCircle2 },
-  EN_COURS:  { label: 'En cours',   color: 'bg-blue-100 text-blue-700 border-blue-200',          icon: Clock },
-  EN_ATTENTE:{ label: 'En attente', color: 'bg-slate-100 text-slate-600 border-slate-200',       icon: Circle },
-  SIGNALE:   { label: 'Signalé',    color: 'bg-red-100 text-red-700 border-red-200',             icon: AlertTriangle },
+  FAIT: { label: 'Fait', color: 'bg-emerald-100 text-emerald-700 border-emerald-200', icon: CheckCircle2 },
+  EN_COURS: { label: 'En cours', color: 'bg-blue-100 text-blue-700 border-blue-200', icon: Clock },
+  EN_ATTENTE: { label: 'En attente', color: 'bg-slate-100 text-slate-600 border-slate-200', icon: Circle },
+  PAS_ENCORE: { label: 'Pas encore', color: 'bg-slate-100 text-slate-600 border-slate-200', icon: Circle },
+  SIGNALE: { label: 'Signalé', color: 'bg-red-100 text-red-700 border-red-200', icon: AlertTriangle },
 }
 
 function StatusBadge({ status }: { status: string | null }) {
-  if (!status) status = 'EN_ATTENTE'
+  if (!status) status = 'PAS_ENCORE'
   const cfg = STATUS_CONFIG[status as keyof typeof STATUS_CONFIG]
   if (!cfg) return <span>{status}</span>
   const Icon = cfg.icon
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${cfg.color}`}>
-      <Icon className="w-3 h-3" />
-      {cfg.label}
+      <Icon className="w-3 h-3" />{cfg.label}
     </span>
   )
 }
@@ -98,41 +86,23 @@ function displayDateLocal(dateString: string | null): string {
 
 function getProjectTypeLabel(type: string | null) {
   if (!type) return '-'
-  switch (type) {
-    case 'FILM': return 'Film'
-    case 'SERIE': return 'Série'
-    case 'EMISSION': return 'Émission'
-    default: return type
-  }
+  return type === 'FILM' ? 'Film' : 'Série/Émission'
 }
 
-// ✅ CORRECTION 5: Modal avec sélection du Tech Son pour Admin
-interface StartModalProps {
-  project: Project | null
-  techSons: TechSon[]
-  onClose: () => void
-  onStart: (projectId: string, techSonId: string, comment: string) => Promise<void>
-  isAdmin: boolean
-}
-
-function StartModal({ project, techSons, onClose, onStart, isAdmin }: StartModalProps) {
+// Modal Commencer
+function StartModal({ project, techSons, onClose, onStart, isAdmin }: any) {
   const [selectedTechSon, setSelectedTechSon] = useState('')
   const [comment, setComment] = useState('')
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    if (techSons.length === 1 && !isAdmin) {
-      setSelectedTechSon(techSons[0].id)
-    }
+    if (techSons.length === 1 && !isAdmin) setSelectedTechSon(techSons[0].id)
   }, [techSons, isAdmin])
 
   if (!project) return null
 
   const handleStart = async () => {
-    if (!selectedTechSon) {
-      toast.error('Veuillez sélectionner un tech son')
-      return
-    }
+    if (!selectedTechSon) { toast.error('Veuillez sélectionner un tech son'); return }
     setSaving(true)
     await onStart(project.id, selectedTechSon, comment)
     setSaving(false)
@@ -142,85 +112,39 @@ function StartModal({ project, techSons, onClose, onStart, isAdmin }: StartModal
   return (
     <Dialog open={!!project} onOpenChange={onClose}>
       <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <PlayCircle className="w-5 h-5 text-blue-600" />
-            Commencer le mixage
-          </DialogTitle>
-        </DialogHeader>
-
+        <DialogHeader><DialogTitle>Commencer le mixage</DialogTitle></DialogHeader>
         <div className="space-y-4 py-2">
           <div className="bg-slate-50 rounded-lg p-3 space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-slate-500">Projet:</span>
-              <span className="font-medium">{project.seriesName}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-500">Durée:</span>
-              <span className="font-medium">{project.durationMin || 0} min</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-500">Rédacteur:</span>
-              <span className="font-medium">{project.User?.name || '-'}</span>
-            </div>
+            <div className="flex justify-between"><span className="text-slate-500">Projet:</span><span className="font-medium">{project.name}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Durée:</span><span className="font-medium">{project.durationMin ? Math.round(project.durationMin) : 0} min</span></div>
           </div>
-
-          {/* ✅ Admin voit la liste des Tech Sons */}
           {isAdmin && (
             <div className="space-y-1.5">
-              <Label className="text-sm font-medium flex items-center gap-1">
-                <Users className="w-4 h-4" />Assigner à *
-              </Label>
+              <Label>Assigner à *</Label>
               <Select value={selectedTechSon} onValueChange={setSelectedTechSon}>
-                <SelectTrigger className="h-10">
-                  <SelectValue placeholder="Sélectionner un tech son" />
-                </SelectTrigger>
+                <SelectTrigger><SelectValue placeholder="Tech Son" /></SelectTrigger>
                 <SelectContent>
-                  {techSons.map(ts => (
-                    <SelectItem key={ts.id} value={ts.id}>
-                      {ts.name}
-                    </SelectItem>
-                  ))}
+                  {techSons.map((ts: any) => <SelectItem key={ts.id} value={ts.id}>{ts.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
           )}
-
           <div className="space-y-1.5">
-            <Label className="text-sm font-medium">Commentaire (optionnel)</Label>
-            <Textarea
-              placeholder="Observations, notes..."
-              value={comment}
-              onChange={e => setComment(e.target.value)}
-              className="resize-none h-20 text-sm"
-            />
+            <Label>Commentaire</Label>
+            <Textarea value={comment} onChange={e => setComment(e.target.value)} className="h-20" />
           </div>
         </div>
-
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onClose}>Annuler</Button>
-          <Button 
-            size="sm" 
-            onClick={handleStart} 
-            disabled={saving || (!selectedTechSon && isAdmin)} 
-            className="bg-blue-600 hover:bg-blue-700 text-white gap-1.5"
-          >
-            <PlayCircle className="w-3.5 h-3.5" />
-            {saving ? 'Enregistrement...' : 'Commencer'}
-          </Button>
+          <Button size="sm" onClick={handleStart} disabled={saving}>{saving ? '...' : 'Commencer'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   )
 }
 
-interface CompleteModalProps {
-  project: Project | null
-  onClose: () => void
-  onComplete: (projectId: string, comment: string) => Promise<void>
-}
-
-function CompleteModal({ project, onClose, onComplete }: CompleteModalProps) {
+// Modal Compléter
+function CompleteModal({ project, onClose, onComplete }: any) {
   const [comment, setComment] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -236,270 +160,174 @@ function CompleteModal({ project, onClose, onComplete }: CompleteModalProps) {
   return (
     <Dialog open={!!project} onOpenChange={onClose}>
       <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-            Marquer comme fait
-          </DialogTitle>
-        </DialogHeader>
-
+        <DialogHeader><DialogTitle>Marquer comme fait</DialogTitle></DialogHeader>
         <div className="space-y-4 py-2">
-          <div className="bg-slate-50 rounded-lg p-3 space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-slate-500">Projet:</span>
-              <span className="font-medium">{project.seriesName}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-500">Durée:</span>
-              <span className="font-medium">{project.durationMin || 0} min</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-500">Rédacteur:</span>
-              <span className="font-medium">{project.User?.name || '-'}</span>
-            </div>
+          <div className="bg-slate-50 rounded-lg p-3 text-sm">
+            <div className="flex justify-between"><span className="text-slate-500">Projet:</span><span className="font-medium">{project.name}</span></div>
           </div>
-
           <div className="space-y-1.5">
-            <Label className="text-sm font-medium">Commentaire (optionnel)</Label>
-            <Textarea
-              placeholder="Observations, notes..."
-              value={comment}
-              onChange={e => setComment(e.target.value)}
-              className="resize-none h-20 text-sm"
-            />
+            <Label>Commentaire</Label>
+            <Textarea value={comment} onChange={e => setComment(e.target.value)} className="h-20" />
           </div>
         </div>
-
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onClose}>Annuler</Button>
-          <Button 
-            size="sm" 
-            onClick={handleComplete} 
-            disabled={saving} 
-            className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5"
-          >
-            <CheckCircle2 className="w-3.5 h-3.5" />
-            {saving ? 'Enregistrement...' : 'Compléter'}
-          </Button>
+          <Button size="sm" onClick={handleComplete} disabled={saving}>{saving ? '...' : 'Compléter'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   )
 }
 
-function ProjectRow({ 
-  project, 
-  onAction,
-  onView,
-  isAdmin 
-}: { 
-  project: Project
-  onAction: (p: Project, action: 'commencer' | 'fait' | 'signaler', techSonId?: string) => void
-  onView: (p: Project) => void
-  isAdmin: boolean 
-}) {
+// Header Triable
+function SortableHeader({ label, field, currentSort, onSort }: any) {
+  const isActive = currentSort.field === field
   return (
-    <tr className="group border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
-      <td className="py-2.5 px-4">
-        <div className="font-medium text-slate-800">
-          {project.seriesName}
-          {project.season && <span className="text-slate-500"> S{project.season}</span>}
-          {project.episodeNumber && <span className="text-slate-500"> Ép.{project.episodeNumber}</span>}
-        </div>
-        {project.projectCode && (
-          <div className="text-xs text-slate-400 font-mono mt-0.5">{project.projectCode}</div>
-        )}
-      </td>
-
-      <td className="py-2.5 px-3">
-        {displayDateLocal(project.deadline)}
-      </td>
-
-      <td className="py-2.5 px-3 hidden sm:table-cell text-center">
-        <Badge variant="outline" className="text-xs">
-          {getProjectTypeLabel(project.projectType)}
-        </Badge>
-      </td>
-
-      <td className="py-2.5 px-3 hidden lg:table-cell text-center">
-        {project.durationMin ? `${project.durationMin} min` : '-'}
-      </td>
-
-      <td className="py-2.5 px-3 hidden md:table-cell">
-        {project.User?.name || '-'}
-      </td>
-
-      <td className="py-2.5 px-3 hidden md:table-cell">
-        {project.User_1?.name || <span className="text-slate-400">-</span>}
-      </td>
-
-      <td className="py-2.5 px-3 hidden lg:table-cell">
-        {displayDateLocal(project.mixedAt)}
-      </td>
-
-      <td className="py-2.5 px-3">
-        <StatusBadge status={project.mixStatus} />
-      </td>
-
-      <td className="py-2.5 px-3 text-right">
-        <div className="flex items-center justify-end gap-1">
-          {!project.techSonId && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 px-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-              onClick={() => onAction(project, 'commencer')}
-              title="Commencer"
-            >
-              <PlayCircle className="w-3.5 h-3.5" />
-            </Button>
-          )}
-          
-          {project.techSonId && project.mixStatus !== 'FAIT' && project.mixStatus !== 'SIGNALE' && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 px-2 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
-              onClick={() => onAction(project, 'fait')}
-              title="Fait"
-            >
-              <CheckCircle2 className="w-3.5 h-3.5" />
-            </Button>
-          )}
-          
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 opacity-0 group-hover:opacity-100 transition-opacity text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50"
-            onClick={() => onView(project)}
-            title="Voir détails"
-          >
-            <Eye className="w-3.5 h-3.5" />
-          </Button>
-        </div>
-      </td>
-    </tr>
+    <th className="text-left py-2 px-3 text-xs font-medium text-slate-500 whitespace-nowrap cursor-pointer hover:bg-slate-100" onClick={() => onSort(field)}>
+      <div className="flex items-center gap-1">
+        {label}
+        {isActive ? (currentSort.order === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />) : <ArrowUpDown className="w-3 h-3 opacity-30" />}
+      </div>
+    </th>
   )
 }
 
 export default function StudioPage() {
-  const {  data: session, status } = useSession()
+  const { data: session, status } = useSession()
   const { isDemo, demoUser } = useDemoMode()
   const router = useRouter()
+  
+  // États
   const [projects, setProjects] = useState<Project[]>([])
-  const [stats, setStats] = useState<Stats>({ total: 0, en_attente: 0, en_cours: 0, fait: 0, signale: 0 })
+  const [stats, setStats] = useState<Stats>({ total: 0, pas_encore: 0, en_attente: 0, en_cours: 0, fait: 0, signale: 0 })
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL')
+  const [techSonFilter, setTechSonFilter] = useState<string>('all')
+  const [mixedAtFilter, setMixedAtFilter] = useState<string>('')
+  const [deadlineFilter, setDeadlineFilter] = useState<string>('')
+  const [sortField, setSortField] = useState<SortField>('deadline')
+  const [sortOrder, setSortOrder] = useState<SortOrder>('asc')
   const [search, setSearch] = useState('')
+  const [techSons, setTechSons] = useState<TechSon[]>([])
   const [viewingProject, setViewingProject] = useState<Project | null>(null)
   const [startingProject, setStartingProject] = useState<Project | null>(null)
   const [completingProject, setCompletingProject] = useState<Project | null>(null)
-  const [techSons, setTechSons] = useState<TechSon[]>([])
 
   const user: DemoUser | null = (session?.user as DemoUser) || demoUser || null
   const isAdmin = user?.role === 'ADMIN'
   const userJobRole = (user as any)?.jobRole
 
+  // Debug
   useEffect(() => {
-    if (!isDemo && status === 'unauthenticated') router.push('/login')
-  }, [status, router, isDemo])
+    console.log('🔍 [STUDIO] State:', { status, user: user?.name, userJobRole, isAdmin, projectsCount: projects.length, techSonsCount: techSons.length })
+  }, [status, user, userJobRole, isAdmin, projects.length, techSons.length])
 
-  // ✅ CORRECTION 6: Charger la liste des Tech Sons pour l'admin
-  const fetchTechSons = useCallback(async () => {
-    if (!isAdmin) return
-    try {
-      const res = await fetch('/api/users?jobRole=TECH_SON')
-      if (res.ok) {
-        const data = await res.json()
-        setTechSons(data.users || [])
-      }
-    } catch {
-      console.error('Erreur chargement tech sons')
-    }
-  }, [isAdmin])
-
+  // 1. Charger les Tech Sons
   useEffect(() => {
-    if (isAdmin) fetchTechSons()
-  }, [isAdmin, fetchTechSons])
-
-  const fetchData = useCallback(async () => {
-    try {
-      setLoading(true)
-      const params = new URLSearchParams()
-      if (statusFilter !== 'ALL') {
-        params.set('status', statusFilter.toLowerCase())
-      }
-
-      const res = await fetch(`/api/projects/studio?${params.toString()}`)
-      if (!res.ok) throw new Error()
-      const data = await res.json()
-      
-      setProjects(data.projects || [])
-      setStats(data.stats || { total: 0, en_attente: 0, en_cours: 0, fait: 0, signale: 0 })
-    } catch {
-      toast.error('Erreur de chargement')
-    } finally {
-      setLoading(false)
-    }
-  }, [statusFilter])
-
-  useEffect(() => {
-    if (user) fetchData()
-  }, [user, fetchData])
-
-  // ✅ CORRECTION 7: handleAction avec techSonId optionnel
-  const handleAction = async (project: Project, action: 'commencer' | 'fait' | 'signaler', techSonId?: string) => {
-    if (action === 'commencer') {
-      setStartingProject(project)
-    } else {
-      try {
-        const res = await fetch('/api/projects/studio', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            projectId: project.id,
-            action,
-            techSonId,
-            comment: project.comment
-          })
-        })
-        
-        if (res.ok) {
-          toast.success(action === 'fait' ? 'Projet complété' : 'Projet signalé')
-          fetchData()
+    console.log('🔍 [STUDIO] Loading tech sons...')
+    fetch('/api/users?jobRole=TECH_SON')
+      .then(res => {
+        console.log('📡 [STUDIO] Tech sons response status:', res.status)
+        return res.json()
+      })
+      .then(data => {
+        console.log('📦 [STUDIO] Tech sons data:', data)
+        if (Array.isArray(data)) {
+          setTechSons(data)
         } else {
-          toast.error('Erreur lors de l\'action')
+          console.warn('⚠️ [STUDIO] Unexpected tech sons format')
+          setTechSons([])
         }
-      } catch {
-        toast.error('Erreur de connexion')
-      }
+      })
+      .catch(err => {
+        console.error('❌ [STUDIO] Error loading tech sons:', err)
+        setTechSons([])
+      })
+  }, [])
+
+  // 2. Charger les projets
+  useEffect(() => {
+    // ✅ IMPORTANT: Ne fetch que si user est défini
+    if (!user || status !== 'authenticated') {
+      console.log(' [STUDIO] Waiting for user authentication...', { user, status })
+      return
     }
+
+    console.log('🔍 [STUDIO] Fetching projects...')
+    setLoading(true)
+    
+    const params = new URLSearchParams()
+    if (statusFilter !== 'ALL') params.set('status', statusFilter.toLowerCase())
+    
+    fetch(`/api/projects/studio?${params.toString()}`)
+      .then(res => {
+        console.log('📡 [STUDIO] Projects response status:', res.status)
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        return res.json()
+      })
+      .then(data => {
+        console.log('📦 [STUDIO] Projects data:', { count: data.projects?.length, stats: data.stats })
+        setProjects(data.projects || [])
+        setStats(data.stats || { total: 0, pas_encore: 0, en_attente: 0, en_cours: 0, fait: 0, signale: 0 })
+      })
+      .catch(err => {
+        console.error('❌ [STUDIO] Error loading projects:', err)
+        toast.error('Erreur chargement projets')
+        setProjects([])
+        setStats({ total: 0, pas_encore: 0, en_attente: 0, en_cours: 0, fait: 0, signale: 0 })
+      })
+      .finally(() => {
+        setLoading(false)
+      })
+  }, [user, status, statusFilter])  // ← ← ← Dépendances CLÉS
+
+  // Handlers
+  const handleAction = async (project: Project, action: string, techSonId?: string) => {
+    if (action === 'commencer') { setStartingProject(project); return }
+    
+    try {
+      const res = await fetch('/api/projects/studio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: project.id, action, techSonId, comment: project.comment })
+      })
+      if (res.ok) {
+        toast.success('Action réussie')
+        // Re-fetch
+        setLoading(true)
+        const params = new URLSearchParams()
+        if (statusFilter !== 'ALL') params.set('status', statusFilter.toLowerCase())
+        const res2 = await fetch(`/api/projects/studio?${params.toString()}`)
+        const data = await res2.json()
+        setProjects(data.projects || [])
+        setStats(data.stats || { total: 0, pas_encore: 0, en_attente: 0, en_cours: 0, fait: 0, signale: 0 })
+        setLoading(false)
+      } else {
+        toast.error('Erreur action')
+      }
+    } catch { toast.error('Erreur connexion') }
   }
 
-  // ✅ CORRECTION 8: handleStart avec techSonId
   const handleStart = async (projectId: string, techSonId: string, comment: string) => {
     try {
       const res = await fetch('/api/projects/studio', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          projectId,
-          action: 'commencer',
-          techSonId,
-          comment
-        })
+        body: JSON.stringify({ projectId, action: 'commencer', techSonId, comment })
       })
-      
       if (res.ok) {
         toast.success('Projet commencé')
-        fetchData()
+        setLoading(true)
+        const params = new URLSearchParams()
+        if (statusFilter !== 'ALL') params.set('status', statusFilter.toLowerCase())
+        const res2 = await fetch(`/api/projects/studio?${params.toString()}`)
+        const data = await res2.json()
+        setProjects(data.projects || [])
+        setStats(data.stats || { total: 0, pas_encore: 0, en_attente: 0, en_cours: 0, fait: 0, signale: 0 })
+        setLoading(false)
         setStartingProject(null)
-      } else {
-        toast.error('Erreur lors du démarrage')
-      }
-    } catch {
-      toast.error('Erreur de connexion')
-    }
+      } else { toast.error('Erreur démarrage') }
+    } catch { toast.error('Erreur connexion') }
   }
 
   const handleComplete = async (projectId: string, comment: string) => {
@@ -507,49 +335,71 @@ export default function StudioPage() {
       const res = await fetch('/api/projects/studio', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          projectId,
-          action: 'fait',
-          comment
-        })
+        body: JSON.stringify({ projectId, action: 'fait', comment })
       })
-      
       if (res.ok) {
         toast.success('Projet complété')
-        fetchData()
+        setLoading(true)
+        const params = new URLSearchParams()
+        if (statusFilter !== 'ALL') params.set('status', statusFilter.toLowerCase())
+        const res2 = await fetch(`/api/projects/studio?${params.toString()}`)
+        const data = await res2.json()
+        setProjects(data.projects || [])
+        setStats(data.stats || { total: 0, pas_encore: 0, en_attente: 0, en_cours: 0, fait: 0, signale: 0 })
+        setLoading(false)
         setCompletingProject(null)
-      } else {
-        toast.error('Erreur lors de la complétion')
-      }
-    } catch {
-      toast.error('Erreur de connexion')
-    }
+      } else { toast.error('Erreur complétion') }
+    } catch { toast.error('Erreur connexion') }
   }
 
-  const filteredProjects = projects.filter(p => {
-    if (!search) return true
-    return p.seriesName.toLowerCase().includes(search.toLowerCase()) ||
-      p.projectCode?.toLowerCase().includes(search.toLowerCase())
-  })
+  const handleSort = (field: SortField) => {
+    setSortField(field)
+    setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')
+  }
 
-  if ((status === 'loading' && !isDemo) || loading) {
+  // Filtrage et tri
+  const filteredProjects = [...projects]
+    .filter(p => {
+      if (search && !p.name.toLowerCase().includes(search.toLowerCase()) && !p.projectCode?.toLowerCase().includes(search.toLowerCase())) return false
+      if (techSonFilter !== 'all' && p.techSonId !== techSonFilter) return false
+      if (mixedAtFilter && (!p.mixedAt || !p.mixedAt.startsWith(mixedAtFilter))) return false
+      if (deadlineFilter && (!p.deadline || !p.deadline.startsWith(deadlineFilter))) return false
+      return true
+    })
+    .sort((a, b) => {
+      let cmp = 0
+      switch (sortField) {
+        case 'name': cmp = a.name.localeCompare(b.name); break
+        case 'deadline': cmp = new Date(a.deadline).getTime() - new Date(b.deadline).getTime(); break
+        case 'mixedAt': cmp = new Date(a.mixedAt || 0).getTime() - new Date(b.mixedAt || 0).getTime(); break
+        case 'durationMin': cmp = (a.durationMin || 0) - (b.durationMin || 0); break
+      }
+      return sortOrder === 'asc' ? cmp : -cmp
+    })
+
+  const totalMinutes = Math.round(filteredProjects.reduce((sum, p) => sum + (p.durationMin || 0), 0))
+
+  // Loading screen
+  if (loading && projects.length === 0) {
     return (
       <DashboardLayout>
-        <div className="min-h-[60vh] flex items-center justify-center">
+        <div className="min-h-[60vh] flex flex-col items-center justify-center gap-4">
           <div className="animate-spin rounded-full h-12 w-12 border-4 border-indigo-200 border-t-indigo-600" />
+          <p className="text-slate-500">Chargement...</p>
         </div>
       </DashboardLayout>
     )
   }
 
+  // Access check
   if (!isAdmin && !['TECH_SON', 'NARRATEUR', 'LIVREUR'].includes(userJobRole)) {
     return (
       <DashboardLayout>
-        <div className="min-h-[60vh] flex items-center justify-center text-center">
-          <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-          <h2 className="text-xl font-bold text-slate-800 mb-2">Accès réservé au studio</h2>
-          <p className="text-slate-500 mb-4">Ton rôle : <strong>{userJobRole || 'Aucun'}</strong></p>
-          <Button onClick={() => router.push('/dashboard')} className="mt-4">Retour</Button>
+        <div className="min-h-[60vh] flex flex-col items-center justify-center text-center gap-4">
+          <AlertCircle className="w-12 h-12 text-red-500" />
+          <h2 className="text-xl font-bold">Accès réservé au studio</h2>
+          <p className="text-slate-500">Ton rôle: {userJobRole || 'Aucun'}</p>
+          <Button onClick={() => router.push('/dashboard')}>Retour</Button>
         </div>
       </DashboardLayout>
     )
@@ -558,71 +408,39 @@ export default function StudioPage() {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-              <Package className="h-6 w-6 text-indigo-600" />
-              Studio - Mixage
-            </h1>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              {isAdmin ? 'Tous les projets (Admin)' : 'Mes projets en mixage'} • {user?.name}
-            </p>
-          </div>
+        {/* Header */}
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            <Package className="h-6 w-6 text-indigo-600" />Studio - Mixage
+          </h1>
+          <p className="text-sm text-muted-foreground">{user?.name}</p>
         </div>
 
-        <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-4">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm text-slate-500">Total</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-2xl font-bold">{stats.total}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm text-slate-500">En attente</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-2xl font-bold text-slate-600">{stats.en_attente}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm text-slate-500">En cours</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-2xl font-bold text-blue-600">{stats.en_cours}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm text-slate-500">Fait</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-2xl font-bold text-emerald-600">{stats.fait}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm text-slate-500 flex items-center gap-1">
-                <AlertTriangle className="w-3 h-3" /> Signalés
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-2xl font-bold text-red-600">{stats.signale}</p>
-            </CardContent>
-          </Card>
+        {/* Stats */}
+        <div className="grid sm:grid-cols-2 lg:grid-cols-7 gap-4">
+          {[
+            { label: 'Total', value: stats.total },
+            { label: 'Pas encore', value: stats.pas_encore, color: 'text-slate-600' },
+            { label: 'En attente', value: stats.en_attente, color: 'text-slate-500' },
+            { label: 'En cours', value: stats.en_cours, color: 'text-blue-600' },
+            { label: 'Fait', value: stats.fait, color: 'text-emerald-600' },
+            { label: 'Signalés', value: stats.signale, color: 'text-red-600' },
+            { label: 'Total Minutes', value: totalMinutes, color: 'text-indigo-600' },
+          ].map((s, i) => (
+            <Card key={i}>
+              <CardHeader className="pb-2"><CardTitle className="text-sm text-slate-500">{s.label}</CardTitle></CardHeader>
+              <CardContent><p className={`text-2xl font-bold ${s.color || ''}`}>{s.value}</p></CardContent>
+            </Card>
+          ))}
         </div>
 
+        {/* Filters */}
         <div className="flex flex-wrap gap-3">
           <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as StatusFilter)}>
-            <SelectTrigger className="w-40">
-              <SelectValue placeholder="Statut" />
-            </SelectTrigger>
+            <SelectTrigger className="w-40"><SelectValue placeholder="Statut" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="ALL">Tous</SelectItem>
+              <SelectItem value="PAS_ENCORE">Pas encore</SelectItem>
               <SelectItem value="EN_ATTENTE">En attente</SelectItem>
               <SelectItem value="EN_COURS">En cours</SelectItem>
               <SelectItem value="FAIT">Fait</SelectItem>
@@ -630,50 +448,68 @@ export default function StudioPage() {
             </SelectContent>
           </Select>
 
+          <Select value={techSonFilter} onValueChange={setTechSonFilter}>
+            <SelectTrigger className="w-40"><SelectValue placeholder="Tech Son" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tous</SelectItem>
+              {techSons.map(ts => <SelectItem key={ts.id} value={ts.id}>{ts.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+
+          <Input type="date" value={mixedAtFilter} onChange={e => setMixedAtFilter(e.target.value)} className="w-40 h-9" />
+          <Input type="date" value={deadlineFilter} onChange={e => setDeadlineFilter(e.target.value)} className="w-40 h-9" />
+
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Rechercher..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              className="pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-full focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-200 bg-white w-44"
-            />
+            <input type="text" placeholder="Rechercher..." value={search} onChange={e => setSearch(e.target.value)}
+                   className="pl-8 pr-3 py-1.5 text-xs border rounded-full bg-white w-44" />
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+        {/* Table */}
+        <div className="bg-white rounded-xl border overflow-hidden">
           {filteredProjects.length === 0 ? (
             <div className="text-center py-12">
               <Package className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-slate-700 mb-1">Aucun projet</h3>
-              <p className="text-sm text-slate-500">Les projets finis en rédaction apparaîtront ici</p>
+              <h3 className="text-lg font-medium">Aucun projet</h3>
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-slate-100 bg-slate-50/50">
-                    <th className="text-left py-2.5 px-4 text-xs font-medium text-slate-500">Projet</th>
-                    <th className="text-left py-2.5 px-3 text-xs font-medium text-slate-500">Échéance</th>
-                    <th className="text-center py-2.5 px-3 text-xs font-medium text-slate-500 hidden sm:table-cell">Type</th>
-                    <th className="text-center py-2.5 px-3 text-xs font-medium text-slate-500 hidden lg:table-cell">Durée</th>
-                    <th className="text-left py-2.5 px-3 text-xs font-medium text-slate-500 hidden md:table-cell">Rédacteur</th>
-                    <th className="text-left py-2.5 px-3 text-xs font-medium text-slate-500 hidden md:table-cell">Tech Son</th>
-                    <th className="text-left py-2.5 px-3 text-xs font-medium text-slate-500 hidden lg:table-cell">Date mixage</th>
-                    <th className="text-left py-2.5 px-3 text-xs font-medium text-slate-500">Statut</th>
-                    <th className="py-2.5 px-3"></th>
+                  <tr className="border-b bg-slate-50/50">
+                    <SortableHeader label="Projet" field="name" currentSort={{ field: sortField, order: sortOrder }} onSort={handleSort} />
+                    <SortableHeader label="Échéance" field="deadline" currentSort={{ field: sortField, order: sortOrder }} onSort={handleSort} />
+                    <th className="text-center py-2 px-3 text-xs font-medium text-slate-500">Type</th>
+                    <SortableHeader label="Durée" field="durationMin" currentSort={{ field: sortField, order: sortOrder }} onSort={handleSort} />
+                    <th className="text-left py-2 px-3 text-xs font-medium text-slate-500 hidden md:table-cell">Rédacteur</th>
+                    <th className="text-left py-2 px-3 text-xs font-medium text-slate-500 hidden md:table-cell">Tech Son</th>
+                    <SortableHeader label="Date mixage" field="mixedAt" currentSort={{ field: sortField, order: sortOrder }} onSort={handleSort} />
+                    <th className="text-left py-2 px-3 text-xs font-medium text-slate-500">Statut</th>
+                    <th className="py-2 px-3"></th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredProjects.map(p => (
-                    <ProjectRow 
-                      key={p.id} 
-                      project={p} 
-                      onAction={handleAction}
-                      onView={setViewingProject}
-                      isAdmin={isAdmin}
-                    />
+                    <tr key={p.id} className="group border-b hover:bg-slate-50/50">
+                      <td className="py-2.5 px-3 max-w-[250px]">
+                        <div className="font-medium line-clamp-2" title={p.name}>{p.name}</div>
+                      </td>
+                      <td className="py-2.5 px-3 whitespace-nowrap">{displayDateLocal(p.deadline)}</td>
+                      <td className="py-2.5 px-3 whitespace-nowrap text-center"><Badge variant="outline" className="text-xs">{getProjectTypeLabel(p.projectType)}</Badge></td>
+                      <td className="py-2.5 px-3 whitespace-nowrap text-center">{p.durationMin ? `${Math.round(p.durationMin)} min` : '-'}</td>
+                      <td className="py-2.5 px-3 whitespace-nowrap hidden md:table-cell">{p.User?.name || '-'}</td>
+                      <td className="py-2.5 px-3 whitespace-nowrap hidden md:table-cell">{p.User_1?.name || '-'}</td>
+                      <td className="py-2.5 px-3 whitespace-nowrap">{displayDateLocal(p.mixedAt)}</td>
+                      <td className="py-2.5 px-3"><StatusBadge status={p.mixStatus} /></td>
+                      <td className="py-2.5 px-3 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          {!p.techSonId && <Button size="sm" variant="outline" className="h-7" onClick={() => handleAction(p, 'commencer')}><PlayCircle className="w-3.5 h-3.5" /></Button>}
+                          {p.techSonId && p.mixStatus !== 'FAIT' && p.mixStatus !== 'SIGNALE' && <Button size="sm" variant="outline" className="h-7" onClick={() => handleAction(p, 'fait')}><CheckCircle2 className="w-3.5 h-3.5" /></Button>}
+                          <Button variant="ghost" size="sm" className="h-7" onClick={() => setViewingProject(p)}><Eye className="w-3.5 h-3.5" /></Button>
+                        </div>
+                      </td>
+                    </tr>
                   ))}
                 </tbody>
               </table>
@@ -681,65 +517,26 @@ export default function StudioPage() {
           )}
         </div>
 
-        {/* Modal Voir détails */}
+        {/* Modals */}
         {viewingProject && (
           <Dialog open={!!viewingProject} onOpenChange={() => setViewingProject(null)}>
             <DialogContent className="max-w-2xl">
-              <DialogHeader>
-                <DialogTitle>
-                  {viewingProject.seriesName}
-                  {viewingProject.season && ` S${viewingProject.season}`}
-                  {viewingProject.episodeNumber && ` Ép.${viewingProject.episodeNumber}`}
-                </DialogTitle>
-                {viewingProject.projectCode && (
-                  <p className="text-xs text-slate-500 font-mono">{viewingProject.projectCode}</p>
-                )}
-              </DialogHeader>
-
+              <DialogHeader><DialogTitle>{viewingProject.name}</DialogTitle></DialogHeader>
               <div className="space-y-3 py-2">
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div><span className="text-slate-500">Rédacteur:</span> <span className="font-medium">{viewingProject.User?.name || '-'}</span></div>
                   <div><span className="text-slate-500">Tech Son:</span> <span className="font-medium">{viewingProject.User_1?.name || '-'}</span></div>
-                  <div><span className="text-slate-500">Durée:</span> <span className="font-medium">{viewingProject.durationMin || 0} min</span></div>
-                  <div><span className="text-slate-500">Pages:</span> <span className="font-medium">{viewingProject.pageCount || '-'}</span></div>
-                  <div><span className="text-slate-500">Début mix:</span> <span className="font-medium">{displayDateLocal(viewingProject.mixStartedAt)}</span></div>
+                  <div><span className="text-slate-500">Durée:</span> <span className="font-medium">{viewingProject.durationMin ? Math.round(viewingProject.durationMin) : 0} min</span></div>
                   <div><span className="text-slate-500">Mix terminé:</span> <span className="font-medium">{displayDateLocal(viewingProject.mixedAt)}</span></div>
-                  <div><span className="text-slate-500">Échéance:</span> <span className="font-medium">{displayDateLocal(viewingProject.deadline)}</span></div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label className="text-sm font-medium">Commentaire</Label>
-                  <Textarea
-                    value={viewingProject.comment || ''}
-                    readOnly
-                    className="resize-none h-20 text-sm bg-slate-50"
-                  />
                 </div>
               </div>
-
-              <DialogFooter>
-                <Button variant="outline" size="sm" onClick={() => setViewingProject(null)}>Fermer</Button>
-              </DialogFooter>
+              <DialogFooter><Button variant="outline" size="sm" onClick={() => setViewingProject(null)}>Fermer</Button></DialogFooter>
             </DialogContent>
           </Dialog>
         )}
 
-        {/* ✅ CORRECTION 9: Modal Démarrer avec sélection Tech Son */}
-        <StartModal
-          project={startingProject}
-          techSons={techSons}
-          onClose={() => setStartingProject(null)}
-          onStart={handleStart}
-          isAdmin={isAdmin}
-        />
-
-        {/* Modal Compléter */}
-        <CompleteModal
-          project={completingProject}
-          onClose={() => setCompletingProject(null)}
-          onComplete={handleComplete}
-        />
-
+        <StartModal project={startingProject} techSons={techSons} onClose={() => setStartingProject(null)} onStart={handleStart} isAdmin={isAdmin} />
+        <CompleteModal project={completingProject} onClose={() => setCompletingProject(null)} onComplete={handleComplete} />
       </div>
     </DashboardLayout>
   )
