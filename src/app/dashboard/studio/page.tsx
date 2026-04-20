@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Package, PlayCircle, CheckCircle2, AlertTriangle, Eye, AlertCircle, Search, Clock, Calendar, ArrowUpDown, ArrowUp, ArrowDown, Circle, Users } from 'lucide-react'
+import { Package, PlayCircle, CheckCircle2, AlertTriangle, Eye, Edit, AlertCircle, Search, Clock, Calendar, ArrowUpDown, ArrowUp, ArrowDown, Circle, Users } from 'lucide-react'
 import { toast } from 'sonner'
 import { useDemoMode, DemoUser } from '@/hooks/useDemoMode'
 
@@ -89,20 +89,18 @@ function getProjectTypeLabel(type: string | null) {
   return type === 'FILM' ? 'Film' : 'Série/Émission'
 }
 
-// ✅ Modal Commencer - CORRIGÉ
+// Modal Commencer
 function StartModal({ project, techSons, onClose, onStart, isAdmin }: any) {
   const [selectedTechSon, setSelectedTechSon] = useState('')
   const [comment, setComment] = useState('')
   const [saving, setSaving] = useState(false)
 
-  // ✅ CORRECTION: Auto-sélectionner le tech son si un seul disponible
   useEffect(() => {
     if (techSons && techSons.length === 1 && !isAdmin) {
       setSelectedTechSon(techSons[0].id)
     }
   }, [techSons, isAdmin])
 
-  // ✅ CORRECTION: Reset quand le projet change
   useEffect(() => {
     if (project) {
       setSelectedTechSon('')
@@ -114,13 +112,11 @@ function StartModal({ project, techSons, onClose, onStart, isAdmin }: any) {
   if (!project) return null
 
   const handleStart = async () => {
-    // ✅ CORRECTION: Validation pour admin
     if (isAdmin && !selectedTechSon) {
       toast.error('Veuillez sélectionner un tech son')
       return
     }
     
-    // ✅ CORRECTION: Pour non-admin, utiliser leur propre ID
     const techSonIdToUse = isAdmin ? selectedTechSon : 'self'
     
     setSaving(true)
@@ -139,22 +135,10 @@ function StartModal({ project, techSons, onClose, onStart, isAdmin }: any) {
         </DialogHeader>
         <div className="space-y-4 py-2">
           <div className="bg-slate-50 rounded-lg p-3 space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-slate-500">Projet:</span>
-              <span className="font-medium">{project.name}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-500">Durée:</span>
-              <span className="font-medium">{project.durationMin ? Math.round(project.durationMin) : 0} min</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-500">Rédacteur:</span>
-              <span className="font-medium">{project.User?.name || '-'}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-500">Échéance:</span>
-              <span className="font-medium">{displayDateLocal(project.deadline)}</span>
-            </div>
+            <div className="flex justify-between"><span className="text-slate-500">Projet:</span><span className="font-medium">{project.name}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Durée:</span><span className="font-medium">{project.durationMin ? Math.round(project.durationMin) : 0} min</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Rédacteur:</span><span className="font-medium">{project.User?.name || '-'}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Échéance:</span><span className="font-medium">{displayDateLocal(project.deadline)}</span></div>
           </div>
 
           {isAdmin && (
@@ -163,14 +147,10 @@ function StartModal({ project, techSons, onClose, onStart, isAdmin }: any) {
                 <Users className="w-4 h-4" />Assigner à *
               </Label>
               <Select value={selectedTechSon} onValueChange={setSelectedTechSon}>
-                <SelectTrigger className="h-10">
-                  <SelectValue placeholder="Sélectionner un tech son" />
-                </SelectTrigger>
+                <SelectTrigger className="h-10"><SelectValue placeholder="Sélectionner un tech son" /></SelectTrigger>
                 <SelectContent>
                   {techSons && techSons.length > 0 ? (
-                    techSons.map((ts: any) => (
-                      <SelectItem key={ts.id} value={ts.id}>{ts.name}</SelectItem>
-                    ))
+                    techSons.map((ts: any) => <SelectItem key={ts.id} value={ts.id}>{ts.name}</SelectItem>)
                   ) : (
                     <SelectItem value="" disabled>Aucun tech son disponible</SelectItem>
                   )}
@@ -180,25 +160,14 @@ function StartModal({ project, techSons, onClose, onStart, isAdmin }: any) {
           )}
 
           <div className="space-y-1.5">
-            <Label className="text-sm font-medium">Commentaire (optionnel)</Label>
-            <Textarea
-              placeholder="Observations, notes..."
-              value={comment}
-              onChange={e => setComment(e.target.value)}
-              className="resize-none h-20 text-sm"
-            />
+            <Label>Commentaire</Label>
+            <Textarea value={comment} onChange={e => setComment(e.target.value)} className="h-20" />
           </div>
         </div>
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onClose}>Annuler</Button>
-          <Button 
-            size="sm" 
-            onClick={handleStart} 
-            disabled={saving || (isAdmin && !selectedTechSon)}
-            className="bg-blue-600 hover:bg-blue-700 text-white gap-1.5"
-          >
-            <PlayCircle className="w-3.5 h-3.5" />
-            {saving ? 'Enregistrement...' : 'Commencer'}
+          <Button size="sm" onClick={handleStart} disabled={saving || (isAdmin && !selectedTechSon)}>
+            {saving ? '...' : 'Commencer'}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -212,10 +181,7 @@ function CompleteModal({ project, onClose, onComplete }: any) {
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    if (project) {
-      setComment('')
-      setSaving(false)
-    }
+    if (project) { setComment(''); setSaving(false) }
   }, [project])
 
   if (!project) return null
@@ -230,22 +196,10 @@ function CompleteModal({ project, onClose, onComplete }: any) {
   return (
     <Dialog open={!!project} onOpenChange={onClose}>
       <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-            Marquer comme fait
-          </DialogTitle>
-        </DialogHeader>
+        <DialogHeader><DialogTitle>Marquer comme fait</DialogTitle></DialogHeader>
         <div className="space-y-4 py-2">
-          <div className="bg-slate-50 rounded-lg p-3 space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-slate-500">Projet:</span>
-              <span className="font-medium">{project.name}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-500">Durée:</span>
-              <span className="font-medium">{project.durationMin ? Math.round(project.durationMin) : 0} min</span>
-            </div>
+          <div className="bg-slate-50 rounded-lg p-3 text-sm">
+            <div className="flex justify-between"><span className="text-slate-500">Projet:</span><span className="font-medium">{project.name}</span></div>
           </div>
           <div className="space-y-1.5">
             <Label>Commentaire</Label>
@@ -255,6 +209,94 @@ function CompleteModal({ project, onClose, onComplete }: any) {
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onClose}>Annuler</Button>
           <Button size="sm" onClick={handleComplete} disabled={saving}>{saving ? '...' : 'Compléter'}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ✅ CORRECTION: Modal Modifier (Admin, Livreur, Narrateur)
+function EditModal({ project, techSons, onClose, onEdit, canEdit }: any) {
+  const [mixStatus, setMixStatus] = useState(project?.mixStatus || 'PAS_ENCORE')
+  const [mixedAt, setMixedAt] = useState(project?.mixedAt?.split('T')[0] || '')
+  const [techSonId, setTechSonId] = useState(project?.techSonId || '')
+  const [comment, setComment] = useState(project?.comment || '')
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (project) {
+      setMixStatus(project.mixStatus || 'PAS_ENCORE')
+      setMixedAt(project.mixedAt?.split('T')[0] || '')
+      setTechSonId(project.techSonId || '')
+      setComment(project.comment || '')
+      setSaving(false)
+    }
+  }, [project])
+
+  if (!project || !canEdit) return null
+
+  const handleEdit = async () => {
+    setSaving(true)
+    await onEdit(project.id, { mixStatus, mixedAt, techSonId, comment })
+    setSaving(false)
+  }
+
+  return (
+    <Dialog open={!!project} onOpenChange={onClose}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Edit className="w-5 h-5 text-amber-600" />
+            Modifier le projet
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="bg-slate-50 rounded-lg p-3 space-y-2 text-sm">
+            <div className="flex justify-between"><span className="text-slate-500">Projet:</span><span className="font-medium">{project.name}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Rédacteur:</span><span className="font-medium">{project.User?.name || '-'}</span></div>
+          </div>
+          
+          <div className="space-y-1.5">
+            <Label>Statut mixage</Label>
+            <Select value={mixStatus} onValueChange={setMixStatus}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="PAS_ENCORE">Pas encore</SelectItem>
+                <SelectItem value="EN_COURS">En cours</SelectItem>
+                <SelectItem value="FAIT">Fait</SelectItem>
+                <SelectItem value="SIGNALE">Signalé</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Date de mixage</Label>
+            <Input type="date" value={mixedAt} onChange={e => setMixedAt(e.target.value)} />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Tech Son</Label>
+            <Select value={techSonId} onValueChange={setTechSonId}>
+              <SelectTrigger><SelectValue placeholder="Sélectionner un tech son" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">Aucun</SelectItem>
+                {techSons && techSons.length > 0 ? (
+                  techSons.map((ts: any) => <SelectItem key={ts.id} value={ts.id}>{ts.name}</SelectItem>)
+                ) : (
+                  <SelectItem value="" disabled>Aucun tech son disponible</SelectItem>
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Commentaire</Label>
+            <Textarea value={comment} onChange={e => setComment(e.target.value)} className="h-20" />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={onClose}>Annuler</Button>
+          <Button size="sm" onClick={handleEdit} disabled={saving}>{saving ? '...' : 'Enregistrer'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -293,15 +335,18 @@ export default function StudioPage() {
   const [viewingProject, setViewingProject] = useState<Project | null>(null)
   const [startingProject, setStartingProject] = useState<Project | null>(null)
   const [completingProject, setCompletingProject] = useState<Project | null>(null)
+  const [editingProject, setEditingProject] = useState<Project | null>(null)  // ✅ CORRECTION
 
   const user: DemoUser | null = (session?.user as DemoUser) || demoUser || null
   const isAdmin = user?.role === 'ADMIN'
   const userJobRole = (user as any)?.jobRole
+  // ✅ CORRECTION: Admin, Livreur, Narrateur peuvent modifier
+  const canEdit = isAdmin || userJobRole === 'LIVREUR' || userJobRole === 'NARRATEUR'
 
   // Debug
   useEffect(() => {
-    console.log('🔍 [STUDIO] State:', { status, user: user?.name, userJobRole, isAdmin, projectsCount: projects.length, techSonsCount: techSons.length })
-  }, [status, user, userJobRole, isAdmin, projects.length, techSons.length])
+    console.log('🔍 [STUDIO] State:', { status, user: user?.name, userJobRole, isAdmin, canEdit, projectsCount: projects.length, techSonsCount: techSons.length })
+  }, [status, user, userJobRole, isAdmin, canEdit, projects.length, techSons.length])
 
   // Charger les Tech Sons
   useEffect(() => {
@@ -360,17 +405,16 @@ export default function StudioPage() {
       })
   }, [user, status, statusFilter])
 
-  // ✅ CORRECTION: Handler d'action
+  // Handlers
   const handleAction = async (project: Project, action: string, techSonId?: string) => {
     console.log('🔍 [STUDIO] handleAction:', { action, projectId: project.id, techSonId })
     
     if (action === 'commencer') {
       console.log('🎯 [STUDIO] Opening StartModal for project:', project.name)
-      setStartingProject(project)  // ✅ Ouvre le modal
+      setStartingProject(project)
       return
     }
     
-    // Autres actions (fait, signaler)
     try {
       const res = await fetch('/api/projects/studio', {
         method: 'POST',
@@ -393,7 +437,6 @@ export default function StudioPage() {
     } catch { toast.error('Erreur connexion') }
   }
 
-  // ✅ CORRECTION: Handler Start
   const handleStart = async (projectId: string, techSonId: string, comment: string) => {
     console.log('🔍 [STUDIO] handleStart:', { projectId, techSonId, comment })
     
@@ -421,7 +464,7 @@ export default function StudioPage() {
         setProjects(data.projects || [])
         setStats(data.stats || { total: 0, pas_encore: 0, en_attente: 0, en_cours: 0, fait: 0, signale: 0 })
         setLoading(false)
-        setStartingProject(null)  // ✅ Ferme le modal
+        setStartingProject(null)
       } else {
         const errorData = await res.json()
         console.error('❌ [STUDIO] Start error:', errorData)
@@ -452,6 +495,41 @@ export default function StudioPage() {
         setLoading(false)
         setCompletingProject(null)
       } else { toast.error('Erreur complétion') }
+    } catch { toast.error('Erreur connexion') }
+  }
+
+  // ✅ CORRECTION: Handler pour modifier un projet (Admin, Livreur, Narrateur)
+  const handleEdit = async (projectId: string, data: any) => {
+    console.log('🔧 [STUDIO] handleEdit:', { projectId, data })
+    
+    try {
+      const res = await fetch('/api/projects/studio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          projectId, 
+          action: 'update',
+          mixStatus: data.mixStatus,
+          mixedAt: data.mixedAt ? new Date(data.mixedAt).toISOString() : null,
+          techSonId: data.techSonId || null,
+          comment: data.comment
+        })
+      })
+      if (res.ok) {
+        toast.success('Projet modifié')
+        setLoading(true)
+        const params = new URLSearchParams()
+        if (statusFilter !== 'ALL') params.set('status', statusFilter.toLowerCase())
+        const res2 = await fetch(`/api/projects/studio?${params.toString()}`)
+        const data2 = await res2.json()
+        setProjects(data2.projects || [])
+        setStats(data2.stats || { total: 0, pas_encore: 0, en_attente: 0, en_cours: 0, fait: 0, signale: 0 })
+        setLoading(false)
+        setEditingProject(null)
+      } else { 
+        const errorData = await res.json()
+        toast.error('Erreur: ' + (errorData.error || 'Modification échouée'))
+      }
     } catch { toast.error('Erreur connexion') }
   }
 
@@ -612,17 +690,8 @@ export default function StudioPage() {
                       <td className="py-2.5 px-3"><StatusBadge status={p.mixStatus} /></td>
                       <td className="py-2.5 px-3 text-right">
                         <div className="flex items-center justify-end gap-1">
-                          {/* ✅ CORRECTION: Bouton Commencer */}
                           {!p.techSonId && (
-                            <Button 
-                              size="sm" 
-                              variant="outline" 
-                              className="h-7" 
-                              onClick={() => {
-                                console.log('🎯 [STUDIO] Button clicked for project:', p.name)
-                                handleAction(p, 'commencer')
-                              }}
-                            >
+                            <Button size="sm" variant="outline" className="h-7" onClick={() => handleAction(p, 'commencer')}>
                               <PlayCircle className="w-3.5 h-3.5" />
                             </Button>
                           )}
@@ -634,6 +703,20 @@ export default function StudioPage() {
                           <Button variant="ghost" size="sm" className="h-7" onClick={() => setViewingProject(p)}>
                             <Eye className="w-3.5 h-3.5" />
                           </Button>
+                          {/* ✅ CORRECTION: Bouton Modifier (Admin, Livreur, Narrateur) */}
+                          {canEdit && (
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              className="h-7 text-amber-600 hover:text-amber-700" 
+                              onClick={() => {
+                                console.log('🎯 [STUDIO] Edit button clicked for project:', p.name)
+                                setEditingProject(p)
+                              }}
+                            >
+                              <Edit className="w-3.5 h-3.5" />
+                            </Button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -662,19 +745,27 @@ export default function StudioPage() {
           </Dialog>
         )}
 
-        {/* ✅ CORRECTION: Modal Start avec tous les props */}
+        {/* ✅ CORRECTION: Modal Start */}
         <StartModal 
           project={startingProject} 
           techSons={techSons} 
-          onClose={() => {
-            console.log('🔍 [STUDIO] Closing StartModal')
-            setStartingProject(null)
-          }} 
+          onClose={() => setStartingProject(null)} 
           onStart={handleStart} 
           isAdmin={isAdmin} 
         />
         
         <CompleteModal project={completingProject} onClose={() => setCompletingProject(null)} onComplete={handleComplete} />
+        
+        {/* ✅ CORRECTION: Modal Edit */}
+        {editingProject && (
+          <EditModal 
+            project={editingProject} 
+            techSons={techSons} 
+            onClose={() => setEditingProject(null)} 
+            onEdit={handleEdit}
+            canEdit={canEdit}
+          />
+        )}
       </div>
     </DashboardLayout>
   )

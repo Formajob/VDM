@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Accès réservé au studio' }, { status: 403 })
     }
 
-    // ✅ CORRECTION: Requête simplifiée - TOUS les projets avec status = FAIT
+    // ✅ Requête - TOUS les projets avec status = FAIT et workflowStep approprié
     let query = supabaseAdmin
       .from('Project')
       .select(`
@@ -34,9 +34,8 @@ export async function GET(req: NextRequest) {
       `)
       .eq('status', 'FAIT')
 
-    // ✅ CORRECTION: Filtrer par workflowStep (STUDIO ou REDACTION ou LIVRAISON)
-    // Les projets en DISPATCH ne sont pas encore en rédaction
-    query = query.in('workflowStep', ['REDACTION', 'STUDIO', 'LIVRAISON'])
+    // ✅ Filtrer par workflowStep (DISPATCH ou REDACTION pour les projets à mixer)
+    query = query.in('workflowStep', ['DISPATCH', 'REDACTION', 'STUDIO', 'LIVRAISON'])
 
     // ✅ Filtrer par mixStatus si spécifié
     if (status === 'pas_encore') {
@@ -51,9 +50,14 @@ export async function GET(req: NextRequest) {
       query = query.eq('mixStatus', 'SIGNALE')
     }
 
-    console.log('🔍 [STUDIO API] Query:', { status, workflowStep: ['REDACTION', 'STUDIO', 'LIVRAISON'] })
+    // ✅ Si pas admin et Tech Son, filtrer par techSonId
+    if (!isAdmin && userJobRole === 'TECH_SON') {
+      query = query.eq('techSonId', userId)
+    }
 
-    const { data: projects, error } = await query
+    console.log('🔍 [STUDIO API] Query:', { status, workflowStep: ['DISPATCH', 'REDACTION', 'STUDIO', 'LIVRAISON'] })
+
+    const {  data:projects, error } = await query
 
     if (error) {
       console.error('❌ [STUDIO API] Error:', error)
@@ -85,10 +89,15 @@ export async function POST(req: NextRequest) {
     if (!session?.user) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
 
     const body = await req.json()
-    const { projectId, action, techSonId, comment } = body
+    const { projectId, action, techSonId, comment, mixStatus, mixedAt } = body
     const userId = (session.user as any).id
-    const isAdmin = (session.user as any).role === 'ADMIN'
+    const userRole = (session.user as any).role
+    const userJobRole = (session.user as any).jobRole
+    const isAdmin = userRole === 'ADMIN'
 
+    console.log('🔍 [STUDIO API] POST:', { action, projectId, isAdmin, userJobRole })
+
+    // ✅ Action: Commencer le mixage
     if (action === 'commencer') {
       const assignTechSonId = isAdmin && techSonId ? techSonId : userId
       
@@ -98,12 +107,18 @@ export async function POST(req: NextRequest) {
           techSonId: assignTechSonId,
           mixStatus: 'EN_COURS',
           mixStartedAt: new Date().toISOString(),
-          comment: comment || null
+          comment: comment || null,
+          workflowStep: 'STUDIO'
         })
         .eq('id', projectId)
       
-      if (error) throw error
+      if (error) {
+        console.error('❌ [STUDIO API] Error commencer:', error)
+        throw error
+      }
+      console.log('✅ [STUDIO API] Projet commencé:', projectId, 'TechSon:', assignTechSonId)
       
+    // ✅ Action: Marquer comme fait
     } else if (action === 'fait') {
       const { error } = await supabaseAdmin
         .from('Project')
@@ -112,12 +127,17 @@ export async function POST(req: NextRequest) {
           mixedAt: new Date().toISOString(),
           comment: comment || null,
           isMixed: true,
-          workflowStep: 'LIVRAISON'
+          workflowStep: 'LIVRAISON'  // Passe à la livraison après mixage
         })
         .eq('id', projectId)
       
-      if (error) throw error
+      if (error) {
+        console.error('❌ [STUDIO API] Error fait:', error)
+        throw error
+      }
+      console.log('✅ [STUDIO API] Projet fait:', projectId)
       
+    // ✅ Action: Signaler un problème
     } else if (action === 'signaler') {
       const { error } = await supabaseAdmin
         .from('Project')
@@ -126,7 +146,53 @@ export async function POST(req: NextRequest) {
           comment: comment || 'Problème signalé'
         })
         .eq('id', projectId)
-      if (error) throw error
+      
+      if (error) {
+        console.error('❌ [STUDIO API] Error signaler:', error)
+        throw error
+      }
+      console.log('✅ [STUDIO API] Projet signalé:', projectId)
+      
+    // ✅ CORRECTION: Action: Modifier un projet (Admin, Livreur, Narrateur)
+    } else if (action === 'update') {
+      // ✅ Vérifier les permissions
+      const canEdit = isAdmin || userJobRole === 'LIVREUR' || userJobRole === 'NARRATEUR'
+      
+      if (!canEdit) {
+        console.error('❌ [STUDIO API] Update non autorisé:', { userRole, userJobRole })
+        return NextResponse.json({ error: 'Non autorisé - Admin, Livreur ou Narrateur requis' }, { status: 403 })
+      }
+      
+      const updateData: any = {}
+      
+      if (mixStatus) updateData.mixStatus = mixStatus
+      if (mixedAt) updateData.mixedAt = mixedAt
+      if (techSonId !== undefined) updateData.techSonId = techSonId
+      if (comment !== undefined) updateData.comment = comment
+      
+      // ✅ Si mixStatus = 'FAIT', mettre à jour isMixed et workflowStep
+      if (mixStatus === 'FAIT') {
+        updateData.isMixed = true
+        updateData.workflowStep = 'LIVRAISON'
+      }
+      
+      // ✅ Si mixStatus = 'EN_COURS', mettre à jour workflowStep
+      if (mixStatus === 'EN_COURS' && !techSonId) {
+        updateData.workflowStep = 'STUDIO'
+      }
+      
+      console.log('🔧 [STUDIO API] Update data:', updateData)
+      
+      const { error } = await supabaseAdmin
+        .from('Project')
+        .update(updateData)
+        .eq('id', projectId)
+      
+      if (error) {
+        console.error('❌ [STUDIO API] Error update:', error)
+        throw error
+      }
+      console.log('✅ [STUDIO API] Projet modifié:', projectId)
     }
 
     return NextResponse.json({ success: true })
