@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Package, PlayCircle, CheckCircle2, AlertTriangle, Eye, AlertCircle, Search, Circle, Clock, Users, Calendar, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
+import { Package, PlayCircle, CheckCircle2, AlertTriangle, Eye, AlertCircle, Search, Clock, Calendar, ArrowUpDown, ArrowUp, ArrowDown, Circle, Users } from 'lucide-react'
 import { toast } from 'sonner'
 import { useDemoMode, DemoUser } from '@/hooks/useDemoMode'
 
@@ -23,7 +23,7 @@ interface Project {
   season: string | null
   episodeNumber: string | null
   broadcastChannel: string | null
-  projectCode: string | null  // ✅ AJOUTÉ
+  projectCode: string | null
   projectType: string | null
   deadline: string
   durationMin: number | null
@@ -89,54 +89,117 @@ function getProjectTypeLabel(type: string | null) {
   return type === 'FILM' ? 'Film' : 'Série/Émission'
 }
 
-// Modal Commencer
+// ✅ Modal Commencer - CORRIGÉ
 function StartModal({ project, techSons, onClose, onStart, isAdmin }: any) {
   const [selectedTechSon, setSelectedTechSon] = useState('')
   const [comment, setComment] = useState('')
   const [saving, setSaving] = useState(false)
 
+  // ✅ CORRECTION: Auto-sélectionner le tech son si un seul disponible
   useEffect(() => {
-    if (techSons.length === 1 && !isAdmin) setSelectedTechSon(techSons[0].id)
+    if (techSons && techSons.length === 1 && !isAdmin) {
+      setSelectedTechSon(techSons[0].id)
+    }
   }, [techSons, isAdmin])
+
+  // ✅ CORRECTION: Reset quand le projet change
+  useEffect(() => {
+    if (project) {
+      setSelectedTechSon('')
+      setComment('')
+      setSaving(false)
+    }
+  }, [project])
 
   if (!project) return null
 
   const handleStart = async () => {
-    if (!selectedTechSon) { toast.error('Veuillez sélectionner un tech son'); return }
+    // ✅ CORRECTION: Validation pour admin
+    if (isAdmin && !selectedTechSon) {
+      toast.error('Veuillez sélectionner un tech son')
+      return
+    }
+    
+    // ✅ CORRECTION: Pour non-admin, utiliser leur propre ID
+    const techSonIdToUse = isAdmin ? selectedTechSon : 'self'
+    
     setSaving(true)
-    await onStart(project.id, selectedTechSon, comment)
+    await onStart(project.id, techSonIdToUse, comment)
     setSaving(false)
-    onClose()
   }
 
   return (
     <Dialog open={!!project} onOpenChange={onClose}>
       <DialogContent className="max-w-lg">
-        <DialogHeader><DialogTitle>Commencer le mixage</DialogTitle></DialogHeader>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <PlayCircle className="w-5 h-5 text-blue-600" />
+            Commencer le mixage
+          </DialogTitle>
+        </DialogHeader>
         <div className="space-y-4 py-2">
           <div className="bg-slate-50 rounded-lg p-3 space-y-2 text-sm">
-            <div className="flex justify-between"><span className="text-slate-500">Projet:</span><span className="font-medium">{project.name}</span></div>
-            <div className="flex justify-between"><span className="text-slate-500">Durée:</span><span className="font-medium">{project.durationMin ? Math.round(project.durationMin) : 0} min</span></div>
+            <div className="flex justify-between">
+              <span className="text-slate-500">Projet:</span>
+              <span className="font-medium">{project.name}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-500">Durée:</span>
+              <span className="font-medium">{project.durationMin ? Math.round(project.durationMin) : 0} min</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-500">Rédacteur:</span>
+              <span className="font-medium">{project.User?.name || '-'}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-500">Échéance:</span>
+              <span className="font-medium">{displayDateLocal(project.deadline)}</span>
+            </div>
           </div>
+
           {isAdmin && (
             <div className="space-y-1.5">
-              <Label>Assigner à *</Label>
+              <Label className="text-sm font-medium flex items-center gap-1">
+                <Users className="w-4 h-4" />Assigner à *
+              </Label>
               <Select value={selectedTechSon} onValueChange={setSelectedTechSon}>
-                <SelectTrigger><SelectValue placeholder="Tech Son" /></SelectTrigger>
+                <SelectTrigger className="h-10">
+                  <SelectValue placeholder="Sélectionner un tech son" />
+                </SelectTrigger>
                 <SelectContent>
-                  {techSons.map((ts: any) => <SelectItem key={ts.id} value={ts.id}>{ts.name}</SelectItem>)}
+                  {techSons && techSons.length > 0 ? (
+                    techSons.map((ts: any) => (
+                      <SelectItem key={ts.id} value={ts.id}>{ts.name}</SelectItem>
+                    ))
+                  ) : (
+                    <SelectItem value="" disabled>Aucun tech son disponible</SelectItem>
+                  )}
                 </SelectContent>
               </Select>
             </div>
           )}
+
           <div className="space-y-1.5">
-            <Label>Commentaire</Label>
-            <Textarea value={comment} onChange={e => setComment(e.target.value)} className="h-20" />
+            <Label className="text-sm font-medium">Commentaire (optionnel)</Label>
+            <Textarea
+              placeholder="Observations, notes..."
+              value={comment}
+              onChange={e => setComment(e.target.value)}
+              className="resize-none h-20 text-sm"
+            />
           </div>
         </div>
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onClose}>Annuler</Button>
-          <Button size="sm" onClick={handleStart} disabled={saving}>{saving ? '...' : 'Commencer'}</Button>
+          <Button 
+            size="sm" 
+            onClick={handleStart} 
+            disabled={saving || (isAdmin && !selectedTechSon)}
+            className="bg-blue-600 hover:bg-blue-700 text-white gap-1.5"
+          >
+            <PlayCircle className="w-3.5 h-3.5" />
+            {saving ? 'Enregistrement...' : 'Commencer'}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -147,6 +210,13 @@ function StartModal({ project, techSons, onClose, onStart, isAdmin }: any) {
 function CompleteModal({ project, onClose, onComplete }: any) {
   const [comment, setComment] = useState('')
   const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (project) {
+      setComment('')
+      setSaving(false)
+    }
+  }, [project])
 
   if (!project) return null
 
@@ -160,10 +230,22 @@ function CompleteModal({ project, onClose, onComplete }: any) {
   return (
     <Dialog open={!!project} onOpenChange={onClose}>
       <DialogContent className="max-w-lg">
-        <DialogHeader><DialogTitle>Marquer comme fait</DialogTitle></DialogHeader>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+            Marquer comme fait
+          </DialogTitle>
+        </DialogHeader>
         <div className="space-y-4 py-2">
-          <div className="bg-slate-50 rounded-lg p-3 text-sm">
-            <div className="flex justify-between"><span className="text-slate-500">Projet:</span><span className="font-medium">{project.name}</span></div>
+          <div className="bg-slate-50 rounded-lg p-3 space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-slate-500">Projet:</span>
+              <span className="font-medium">{project.name}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-500">Durée:</span>
+              <span className="font-medium">{project.durationMin ? Math.round(project.durationMin) : 0} min</span>
+            </div>
           </div>
           <div className="space-y-1.5">
             <Label>Commentaire</Label>
@@ -193,11 +275,10 @@ function SortableHeader({ label, field, currentSort, onSort }: any) {
 }
 
 export default function StudioPage() {
-  const { data: session, status } = useSession()
+  const {  data:session, status } = useSession()
   const { isDemo, demoUser } = useDemoMode()
   const router = useRouter()
   
-  // États
   const [projects, setProjects] = useState<Project[]>([])
   const [stats, setStats] = useState<Stats>({ total: 0, pas_encore: 0, en_attente: 0, en_cours: 0, fait: 0, signale: 0 })
   const [loading, setLoading] = useState(true)
@@ -222,7 +303,7 @@ export default function StudioPage() {
     console.log('🔍 [STUDIO] State:', { status, user: user?.name, userJobRole, isAdmin, projectsCount: projects.length, techSonsCount: techSons.length })
   }, [status, user, userJobRole, isAdmin, projects.length, techSons.length])
 
-  // 1. Charger les Tech Sons
+  // Charger les Tech Sons
   useEffect(() => {
     console.log('🔍 [STUDIO] Loading tech sons...')
     fetch('/api/users?jobRole=TECH_SON')
@@ -231,11 +312,10 @@ export default function StudioPage() {
         return res.json()
       })
       .then(data => {
-        console.log('📦 [STUDIO] Tech sons data:', data)
+        console.log('📦 [STUDIO] Tech sons ', data)
         if (Array.isArray(data)) {
           setTechSons(data)
         } else {
-          console.warn('⚠️ [STUDIO] Unexpected tech sons format')
           setTechSons([])
         }
       })
@@ -245,9 +325,8 @@ export default function StudioPage() {
       })
   }, [])
 
-  // 2. Charger les projets
+  // Charger les projets
   useEffect(() => {
-    // ✅ IMPORTANT: Ne fetch que si user est défini
     if (!user || status !== 'authenticated') {
       console.log(' [STUDIO] Waiting for user authentication...', { user, status })
       return
@@ -266,12 +345,12 @@ export default function StudioPage() {
         return res.json()
       })
       .then(data => {
-        console.log('📦 [STUDIO] Projects data:', { count: data.projects?.length, stats: data.stats })
+        console.log('📦 [STUDIO] Projects ', { count: data.projects?.length, stats: data.stats })
         setProjects(data.projects || [])
         setStats(data.stats || { total: 0, pas_encore: 0, en_attente: 0, en_cours: 0, fait: 0, signale: 0 })
       })
       .catch(err => {
-        console.error('❌ [STUDIO] Error loading projects:', err)
+        console.error('❌ [STUDIO] Error:', err)
         toast.error('Erreur chargement projets')
         setProjects([])
         setStats({ total: 0, pas_encore: 0, en_attente: 0, en_cours: 0, fait: 0, signale: 0 })
@@ -279,12 +358,19 @@ export default function StudioPage() {
       .finally(() => {
         setLoading(false)
       })
-  }, [user, status, statusFilter])  // ← ← ← Dépendances CLÉS
+  }, [user, status, statusFilter])
 
-  // Handlers
+  // ✅ CORRECTION: Handler d'action
   const handleAction = async (project: Project, action: string, techSonId?: string) => {
-    if (action === 'commencer') { setStartingProject(project); return }
+    console.log('🔍 [STUDIO] handleAction:', { action, projectId: project.id, techSonId })
     
+    if (action === 'commencer') {
+      console.log('🎯 [STUDIO] Opening StartModal for project:', project.name)
+      setStartingProject(project)  // ✅ Ouvre le modal
+      return
+    }
+    
+    // Autres actions (fait, signaler)
     try {
       const res = await fetch('/api/projects/studio', {
         method: 'POST',
@@ -293,7 +379,6 @@ export default function StudioPage() {
       })
       if (res.ok) {
         toast.success('Action réussie')
-        // Re-fetch
         setLoading(true)
         const params = new URLSearchParams()
         if (statusFilter !== 'ALL') params.set('status', statusFilter.toLowerCase())
@@ -308,13 +393,24 @@ export default function StudioPage() {
     } catch { toast.error('Erreur connexion') }
   }
 
+  // ✅ CORRECTION: Handler Start
   const handleStart = async (projectId: string, techSonId: string, comment: string) => {
+    console.log('🔍 [STUDIO] handleStart:', { projectId, techSonId, comment })
+    
     try {
       const res = await fetch('/api/projects/studio', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId, action: 'commencer', techSonId, comment })
+        body: JSON.stringify({ 
+          projectId, 
+          action: 'commencer', 
+          techSonId: techSonId === 'self' ? undefined : techSonId, 
+          comment 
+        })
       })
+      
+      console.log('📡 [STUDIO] Start response status:', res.status)
+      
       if (res.ok) {
         toast.success('Projet commencé')
         setLoading(true)
@@ -325,9 +421,16 @@ export default function StudioPage() {
         setProjects(data.projects || [])
         setStats(data.stats || { total: 0, pas_encore: 0, en_attente: 0, en_cours: 0, fait: 0, signale: 0 })
         setLoading(false)
-        setStartingProject(null)
-      } else { toast.error('Erreur démarrage') }
-    } catch { toast.error('Erreur connexion') }
+        setStartingProject(null)  // ✅ Ferme le modal
+      } else {
+        const errorData = await res.json()
+        console.error('❌ [STUDIO] Start error:', errorData)
+        toast.error('Erreur: ' + (errorData.error || 'Démarrage échoué'))
+      }
+    } catch (err: any) {
+      console.error('❌ [STUDIO] Start exception:', err)
+      toast.error('Erreur connexion: ' + err.message)
+    }
   }
 
   const handleComplete = async (projectId: string, comment: string) => {
@@ -425,10 +528,15 @@ export default function StudioPage() {
             { label: 'En cours', value: stats.en_cours, color: 'text-blue-600' },
             { label: 'Fait', value: stats.fait, color: 'text-emerald-600' },
             { label: 'Signalés', value: stats.signale, color: 'text-red-600' },
-            { label: 'Total Minutes', value: totalMinutes, color: 'text-indigo-600' },
+            { label: 'Total Minutes', value: totalMinutes, color: 'text-indigo-600', icon: Clock },
           ].map((s, i) => (
             <Card key={i}>
-              <CardHeader className="pb-2"><CardTitle className="text-sm text-slate-500">{s.label}</CardTitle></CardHeader>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm text-slate-500 flex items-center gap-1">
+                  {s.icon && <s.icon className="w-3 h-3" />}
+                  {s.label}
+                </CardTitle>
+              </CardHeader>
               <CardContent><p className={`text-2xl font-bold ${s.color || ''}`}>{s.value}</p></CardContent>
             </Card>
           ))}
@@ -504,9 +612,28 @@ export default function StudioPage() {
                       <td className="py-2.5 px-3"><StatusBadge status={p.mixStatus} /></td>
                       <td className="py-2.5 px-3 text-right">
                         <div className="flex items-center justify-end gap-1">
-                          {!p.techSonId && <Button size="sm" variant="outline" className="h-7" onClick={() => handleAction(p, 'commencer')}><PlayCircle className="w-3.5 h-3.5" /></Button>}
-                          {p.techSonId && p.mixStatus !== 'FAIT' && p.mixStatus !== 'SIGNALE' && <Button size="sm" variant="outline" className="h-7" onClick={() => handleAction(p, 'fait')}><CheckCircle2 className="w-3.5 h-3.5" /></Button>}
-                          <Button variant="ghost" size="sm" className="h-7" onClick={() => setViewingProject(p)}><Eye className="w-3.5 h-3.5" /></Button>
+                          {/* ✅ CORRECTION: Bouton Commencer */}
+                          {!p.techSonId && (
+                            <Button 
+                              size="sm" 
+                              variant="outline" 
+                              className="h-7" 
+                              onClick={() => {
+                                console.log('🎯 [STUDIO] Button clicked for project:', p.name)
+                                handleAction(p, 'commencer')
+                              }}
+                            >
+                              <PlayCircle className="w-3.5 h-3.5" />
+                            </Button>
+                          )}
+                          {p.techSonId && p.mixStatus !== 'FAIT' && p.mixStatus !== 'SIGNALE' && (
+                            <Button size="sm" variant="outline" className="h-7" onClick={() => handleAction(p, 'fait')}>
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                            </Button>
+                          )}
+                          <Button variant="ghost" size="sm" className="h-7" onClick={() => setViewingProject(p)}>
+                            <Eye className="w-3.5 h-3.5" />
+                          </Button>
                         </div>
                       </td>
                     </tr>
@@ -535,7 +662,18 @@ export default function StudioPage() {
           </Dialog>
         )}
 
-        <StartModal project={startingProject} techSons={techSons} onClose={() => setStartingProject(null)} onStart={handleStart} isAdmin={isAdmin} />
+        {/* ✅ CORRECTION: Modal Start avec tous les props */}
+        <StartModal 
+          project={startingProject} 
+          techSons={techSons} 
+          onClose={() => {
+            console.log('🔍 [STUDIO] Closing StartModal')
+            setStartingProject(null)
+          }} 
+          onStart={handleStart} 
+          isAdmin={isAdmin} 
+        />
+        
         <CompleteModal project={completingProject} onClose={() => setCompletingProject(null)} onComplete={handleComplete} />
       </div>
     </DashboardLayout>
