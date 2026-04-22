@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Accès réservé au studio' }, { status: 403 })
     }
 
-    // ✅ Requête - TOUS les projets avec status = FAIT et workflowStep approprié
+    // ✅ CORRECTION: Requête pour TOUS les projets avec status = 'FAIT' (rédaction faite)
     let query = supabaseAdmin
       .from('Project')
       .select(`
@@ -32,9 +32,13 @@ export async function GET(req: NextRequest) {
         User:redacteurId (id, name),
         User_1:techSonId (id, name)
       `)
-      .eq('status', 'FAIT')
+      .eq('status', 'FAIT')  // ✅ Rédaction doit être FAIT
 
-    // ✅ Filtrer par workflowStep (DISPATCH ou REDACTION pour les projets à mixer)
+    // ✅ CORRECTION: Filtrer par workflowStep approprié pour le studio
+    // DISPATCH = pas encore assigné
+    // REDACTION = rédaction en cours ou faite (à vérifier)
+    // STUDIO = rédaction faite, mixage en cours
+    // LIVRAISON = mixage fait
     query = query.in('workflowStep', ['DISPATCH', 'REDACTION', 'STUDIO', 'LIVRAISON'])
 
     // ✅ Filtrer par mixStatus si spécifié
@@ -50,9 +54,11 @@ export async function GET(req: NextRequest) {
       query = query.eq('mixStatus', 'SIGNALE')
     }
 
-    // ✅ Si pas admin et Tech Son, filtrer par techSonId
+    // ✅ CORRECTION: Si pas admin et Tech Son, filtrer par techSonId
+    // MAIS montrer aussi les projets sans techSonId (à assigner)
     if (!isAdmin && userJobRole === 'TECH_SON') {
-      query = query.eq('techSonId', userId)
+      // Tech Son voit SES projets + les projets non assignés (à dispatcher)
+      query = query.or(`techSonId.eq.${userId},techSonId.is.null`)
     }
 
     console.log('🔍 [STUDIO API] Query:', { status, workflowStep: ['DISPATCH', 'REDACTION', 'STUDIO', 'LIVRAISON'] })
@@ -127,7 +133,7 @@ export async function POST(req: NextRequest) {
           mixedAt: new Date().toISOString(),
           comment: comment || null,
           isMixed: true,
-          workflowStep: 'LIVRAISON'  // Passe à la livraison après mixage
+          workflowStep: 'LIVRAISON'
         })
         .eq('id', projectId)
       
@@ -153,9 +159,8 @@ export async function POST(req: NextRequest) {
       }
       console.log('✅ [STUDIO API] Projet signalé:', projectId)
       
-    // ✅ CORRECTION: Action: Modifier un projet (Admin, Livreur, Narrateur)
+    // ✅ Action: Modifier un projet (Admin, Livreur, Narrateur)
     } else if (action === 'update') {
-      // ✅ Vérifier les permissions
       const canEdit = isAdmin || userJobRole === 'LIVREUR' || userJobRole === 'NARRATEUR'
       
       if (!canEdit) {
@@ -170,13 +175,11 @@ export async function POST(req: NextRequest) {
       if (techSonId !== undefined) updateData.techSonId = techSonId
       if (comment !== undefined) updateData.comment = comment
       
-      // ✅ Si mixStatus = 'FAIT', mettre à jour isMixed et workflowStep
       if (mixStatus === 'FAIT') {
         updateData.isMixed = true
         updateData.workflowStep = 'LIVRAISON'
       }
       
-      // ✅ Si mixStatus = 'EN_COURS', mettre à jour workflowStep
       if (mixStatus === 'EN_COURS' && !techSonId) {
         updateData.workflowStep = 'STUDIO'
       }

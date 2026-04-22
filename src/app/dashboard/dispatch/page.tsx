@@ -17,7 +17,7 @@ import {
 import {
   Package, Plus, Send, Edit3, Save, X, AlertCircle, Tv, Search, 
   Upload, ClipboardPaste, FileText, Check, AlertTriangle, UserCheck,
-  SortAsc, SortDesc, Calendar, Clock, Filter
+  SortAsc, SortDesc, Calendar, Clock, Filter, Pencil, Trash2
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useDemoMode, DemoUser } from '@/hooks/useDemoMode'
@@ -49,16 +49,85 @@ interface Redacteur {
 type SortField = 'deadline' | 'startDate' | 'seriesName' | 'durationMin' | 'redacteurId'
 type SortOrder = 'asc' | 'desc'
 
-// ─── Modal Import en masse ────────────────────────────────
+// ─── Composant: Cellule Durée Éditables ───────────────────
+function DurationCell({ 
+  value, 
+  projectId, 
+  onSave,
+  isEditing,
+  onEditToggle 
+}: { 
+  value: number | null
+  projectId: string
+  onSave: (projectId: string, duration: number | null) => Promise<void>
+  isEditing: boolean
+  onEditToggle: (projectId: string) => void
+}) {
+  const [editValue, setEditValue] = useState(value?.toString() || '')
+  const [saving, setSaving] = useState(false)
+
+  const handleSave = async () => {
+    const numValue = editValue ? parseFloat(editValue) : null
+    if (editValue && isNaN(numValue as number)) {
+      toast.error('Durée invalide')
+      return
+    }
+    setSaving(true)
+    await onSave(projectId, numValue)
+    setSaving(false)
+    onEditToggle('')
+  }
+
+  if (isEditing) {
+    return (
+      <div className="flex items-center gap-1">
+        <Input
+          type="number"
+          value={editValue}
+          onChange={e => setEditValue(e.target.value)}
+          className="h-7 w-16 text-xs p-1"
+          autoFocus
+          onKeyDown={e => {
+            if (e.key === 'Enter') handleSave()
+            if (e.key === 'Escape') onEditToggle('')
+          }}
+        />
+        <button onClick={handleSave} disabled={saving} className="p-1 rounded hover:bg-emerald-100 text-emerald-600">
+          <Check className="w-3 h-3" />
+        </button>
+        <button onClick={() => onEditToggle('')} className="p-1 rounded hover:bg-red-100 text-red-600">
+          <X className="w-3 h-3" />
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex items-center gap-1 group/duration">
+      <span className="text-sm font-semibold text-indigo-600 min-w-[50px] text-right">
+        {value ? `${value}` : '—'}
+      </span>
+      <button 
+        onClick={() => { setEditValue(value?.toString() || ''); onEditToggle(projectId) }}
+        className="opacity-0 group-hover/duration:opacity-100 p-0.5 rounded hover:bg-indigo-100 text-indigo-500 transition-opacity"
+      >
+        <Pencil className="w-3 h-3" />
+      </button>
+    </div>
+  )
+}
+
+// ─── Modal Import en masse (avec durées) ──────────────────
 function ImportModal({ redacteurs, onClose, onImport }: {
   redacteurs: Redacteur[]
   onClose: () => void
-  onImport: (projects: (ParsedProject & { redacteurId?: string })[]) => Promise<void>
+  onImport: (projects: (ParsedProject & { redacteurId?: string; durationMin?: number | null })[]) => Promise<void>
 }) {
   const [rawText, setRawText] = useState('')
-  const [parsed, setParsed] = useState<(ParsedProject & { redacteurId?: string })[]>([])
+  const [parsed, setParsed] = useState<(ParsedProject & { redacteurId?: string; durationMin?: number | null })[]>([])
   const [step, setStep] = useState<'input' | 'preview'>('input')
   const [importing, setImporting] = useState(false)
+  const [format, setFormat] = useState<'simple' | 'csv'>('simple')
   const fileRef = useRef<HTMLInputElement>(null)
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -67,17 +136,37 @@ function ImportModal({ redacteurs, onClose, onImport }: {
     const reader = new FileReader()
     reader.onload = ev => {
       const text = ev.target?.result as string
-      const lines = text.split('\n').map(l => l.split(',')[0].split('\t')[0].trim()).filter(Boolean)
-      setRawText(lines.join('\n'))
+      setRawText(text)
     }
     reader.readAsText(file)
+  }
+
+  const parseLine = (line: string, format: 'simple' | 'csv') => {
+    line = line.trim()
+    if (!line) return null
+    
+    if (format === 'csv') {
+      const parts = line.split(',').map(p => p.trim())
+      const rawName = parts[0]
+      const durationMin = parts[1] ? parseFloat(parts[1]) : null
+      const redacteurId = parts[2] || ''
+      const comment = parts[3] || ''
+      const parsed = parseProjectName(rawName)
+      return { ...parsed, durationMin, redacteurId, comment, rawName }
+    } else {
+      const parts = line.split('|').map(p => p.trim())
+      const rawName = parts[0]
+      const durationMin = parts[1] ? parseFloat(parts[1]) : null
+      const parsed = parseProjectName(rawName)
+      return { ...parsed, durationMin, redacteurId: '', rawName }
+    }
   }
 
   const handleParse = () => {
     if (!rawText.trim()) { toast.error('Collez des noms de projets'); return }
     const lines = rawText.split('\n').map(l => l.trim()).filter(Boolean)
-    const results = lines.map(l => ({ ...parseProjectName(l), redacteurId: '' }))
-    setParsed(results)
+    const results = lines.map(l => parseLine(l, format)).filter(Boolean)
+    setParsed(results as any)
     setStep('preview')
   }
 
@@ -85,34 +174,51 @@ function ImportModal({ redacteurs, onClose, onImport }: {
     setParsed(prev => prev.map((p, i) => i === index ? { ...p, redacteurId } : p))
   }
 
+  const setDuration = (index: number, duration: string) => {
+    const num = duration ? parseFloat(duration) : null
+    setParsed(prev => prev.map((p, i) => i === index ? { ...p, durationMin: num } : p))
+  }
+
   const setAllRedacteur = (redacteurId: string) => {
     setParsed(prev => prev.map(p => ({ ...p, redacteurId })))
   }
 
-  const validProjects = parsed.filter(p => p.valid)
+  const setAllDuration = (duration: string) => {
+    const num = duration ? parseFloat(duration) : null
+    setParsed(prev => prev.map(p => ({ ...p, durationMin: num })))
+  }
+
+  const validProjects = parsed.filter(p => p?.valid)
 
   const handleImport = async () => {
     setImporting(true)
-    await onImport(parsed.filter(p => p.valid))
+    await onImport(validProjects)
     setImporting(false)
     onClose()
   }
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
+      <DialogContent className="max-w-5xl max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Upload className="w-4 h-4 text-indigo-500" />
-            Import en masse
+            Import en masse avec durées
           </DialogTitle>
         </DialogHeader>
 
         {step === 'input' ? (
           <div className="space-y-4 flex-1 overflow-auto py-2">
-            <p className="text-sm text-muted-foreground">
-              Collez les noms de projets (un par ligne) ou importez un fichier CSV/TXT.
-            </p>
+            <div className="flex items-center gap-4 text-sm">
+              <Label className="flex items-center gap-2 cursor-pointer">
+                <input type="radio" name="format" checked={format === 'simple'} onChange={() => setFormat('simple')} />
+                <span>Format simple: <code className="bg-slate-100 px-1 rounded">nom|durée</code></span>
+              </Label>
+              <Label className="flex items-center gap-2 cursor-pointer">
+                <input type="radio" name="format" checked={format === 'csv'} onChange={() => setFormat('csv')} />
+                <span>Format CSV: <code className="bg-slate-100 px-1 rounded">nom,durée,redacteur,comment</code></span>
+              </Label>
+            </div>
 
             <div
               onClick={() => fileRef.current?.click()}
@@ -131,10 +237,16 @@ function ImportModal({ redacteurs, onClose, onImport }: {
             <div className="space-y-1.5">
               <Label className="flex items-center gap-1.5">
                 <ClipboardPaste className="w-3.5 h-3.5 text-indigo-500" />
-                Noms de projets (un par ligne)
+                {format === 'simple' 
+                  ? 'Noms avec durées (un par ligne): nom_projet|durée_min'
+                  : 'CSV: nom_projet,durée_min,redacteur_id,commentaire'
+                }
               </Label>
               <Textarea
-                placeholder={`salledecoute-film_film-m8877a_2026-4-18_tva_27302856\nlarecrue-7_7-g04330_2026-5-13_tva_30959776\n...`}
+                placeholder={format === 'simple' 
+                  ? `salledecoute-film_film-m8877a_2026-4-18_tva_27302856|45\nlarecrue-7_7-g04330_2026-5-13_tva_30959776|22\n...`
+                  : `salledecoute-film...,45,user001,Commentaire\nlarecrue-7...,22,user002,...\n...`
+                }
                 value={rawText}
                 onChange={e => setRawText(e.target.value)}
                 className="resize-none h-48 text-xs font-mono"
@@ -151,17 +263,24 @@ function ImportModal({ redacteurs, onClose, onImport }: {
                 <span className="flex items-center gap-1 text-emerald-600 font-medium">
                   <Check className="w-4 h-4" />{validProjects.length} valide(s)
                 </span>
-                {parsed.filter(p => !p.valid).length > 0 && (
+                {parsed.filter(p => !p?.valid).length > 0 && (
                   <span className="flex items-center gap-1 text-orange-500 font-medium">
-                    <AlertTriangle className="w-4 h-4" />{parsed.filter(p => !p.valid).length} erreur(s)
+                    <AlertTriangle className="w-4 h-4" />{parsed.filter(p => !p?.valid).length} erreur(s)
                   </span>
                 )}
               </div>
 
               <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-500">Tout assigner à :</span>
+                <span className="text-xs text-slate-500">Durée pour tous:</span>
+                <Input 
+                  type="number" 
+                  className="w-16 h-7 text-xs" 
+                  placeholder="min"
+                  onBlur={e => setAllDuration(e.target.value)}
+                />
+                <span className="text-xs text-slate-500">Rédacteur:</span>
                 <Select onValueChange={setAllRedacteur}>
-                  <SelectTrigger className="w-44 h-8 text-xs">
+                  <SelectTrigger className="w-40 h-7 text-xs">
                     <SelectValue placeholder="Choisir..." />
                   </SelectTrigger>
                   <SelectContent>
@@ -177,6 +296,7 @@ function ImportModal({ redacteurs, onClose, onImport }: {
                   <tr className="bg-slate-50 border-b border-slate-200">
                     <th className="text-left py-2 px-3 font-medium text-slate-500">Nom brut</th>
                     <th className="text-left py-2 px-3 font-medium text-slate-500">Titre</th>
+                    <th className="text-center py-2 px-3 font-medium text-slate-500">Durée (min)</th>
                     <th className="text-left py-2 px-3 font-medium text-slate-500">Échéance</th>
                     <th className="text-left py-2 px-3 font-medium text-slate-500">Rédacteur</th>
                     <th className="py-2 px-3 w-6"></th>
@@ -184,10 +304,10 @@ function ImportModal({ redacteurs, onClose, onImport }: {
                 </thead>
                 <tbody>
                   {parsed.map((p, i) => (
-                    <tr key={i} className={`border-b border-slate-100 ${!p.valid ? 'bg-red-50' : ''}`}>
-                      <td className="py-2 px-3 font-mono text-slate-400 max-w-[160px] truncate">{p.rawName}</td>
+                    <tr key={i} className={`border-b border-slate-100 ${!p?.valid ? 'bg-red-50' : ''}`}>
+                      <td className="py-2 px-3 font-mono text-slate-400 max-w-[140px] truncate">{p?.rawName}</td>
                       <td className="py-2 px-3 font-medium text-slate-800">
-                        {p.valid ? (
+                        {p?.valid ? (
                           <>
                             {p.seriesName}
                             {p.season && <span className="text-slate-400"> S{p.season}</span>}
@@ -195,16 +315,25 @@ function ImportModal({ redacteurs, onClose, onImport }: {
                             {p.isFilm && <span className="ml-1 text-purple-500 text-xs">(film)</span>}
                           </>
                         ) : (
-                          <span className="text-red-500">{p.error}</span>
+                          <span className="text-red-500">{p?.error}</span>
                         )}
                       </td>
+                      <td className="py-2 px-3 text-center">
+                        <Input
+                          type="number"
+                          value={p?.durationMin?.toString() || ''}
+                          onChange={e => setDuration(i, e.target.value)}
+                          className="h-7 w-16 text-xs p-1 text-center"
+                          placeholder="—"
+                        />
+                      </td>
                       <td className="py-2 px-3 text-slate-600">
-                        {p.deadline
+                        {p?.deadline
                           ? new Date(p.deadline).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: '2-digit' })
                           : '—'}
                       </td>
                       <td className="py-2 px-3">
-                        {p.valid && (
+                        {p?.valid && (
                           <Select value={p.redacteurId || ''} onValueChange={v => setRedacteur(i, v)}>
                             <SelectTrigger className="h-7 w-36 text-xs border-slate-200">
                               <SelectValue placeholder="Assigner..." />
@@ -219,7 +348,7 @@ function ImportModal({ redacteurs, onClose, onImport }: {
                         )}
                       </td>
                       <td className="py-2 px-3">
-                        {p.valid
+                        {p?.valid
                           ? <Check className="w-3.5 h-3.5 text-emerald-500" />
                           : <AlertCircle className="w-3.5 h-3.5 text-red-400" />}
                       </td>
@@ -257,7 +386,7 @@ function ImportModal({ redacteurs, onClose, onImport }: {
 function AddProjectModal({ redacteurs, onClose, onSave }: {
   redacteurs: Redacteur[]
   onClose: () => void
-  onSave: (data: any) => Promise<void>
+  onSave: (formData: any) => Promise<void>
 }) {
   const [rawName, setRawName] = useState('')
   const [parsed, setParsed] = useState<ParsedProject | null>(null)
@@ -390,7 +519,7 @@ function AddProjectModal({ redacteurs, onClose, onSave }: {
 
 // ─── Modal édition ────────────────────────────────────────
 function EditProjectModal({ project, redacteurs, onClose, onSave }: {
-  project: Project; redacteurs: Redacteur[]; onClose: () => void; onSave: (data: any) => Promise<void>
+  project: Project; redacteurs: Redacteur[]; onClose: () => void; onSave: (formData: any) => Promise<void>
 }) {
   const [form, setForm] = useState({
     seriesName: project.seriesName || '',
@@ -402,7 +531,7 @@ function EditProjectModal({ project, redacteurs, onClose, onSave }: {
     startDate: project.startDate ? new Date(project.startDate).toISOString().split('T')[0] : '',
     durationMin: project.durationMin?.toString() || '',
     comment: project.comment || '',
-    redacteurId: '',
+    redacteurId: project.redacteurId || '',
   })
   const [saving, setSaving] = useState(false)
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
@@ -463,13 +592,15 @@ function EditProjectModal({ project, redacteurs, onClose, onSave }: {
   )
 }
 
-// ─── Ligne projet avec infos mises à jour ────────────
-function ProjectRow({ project, redacteurs, onEdit, onAssign }: {
+// ─── Ligne projet avec durée éditable ─────────────────────
+function ProjectRow({ project, redacteurs, onEdit, onAssign, onDurationEdit }: {
   project: Project & { redacteurId?: string | null }
   redacteurs: Redacteur[]
   onEdit: () => void
   onAssign: (projectId: string, redacteurId: string) => void
+  onDurationEdit: (projectId: string, duration: number | null) => Promise<void>
 }) {
+  const [editingDurationId, setEditingDurationId] = useState<string | null>(null)
   const hours = (new Date(project.deadline).getTime() - Date.now()) / (1000 * 60 * 60)
   const isLate = hours < 0
   const isSoon = hours < 48 && hours >= 0
@@ -487,7 +618,6 @@ function ProjectRow({ project, redacteurs, onEdit, onAssign }: {
         </div>
       </td>
       
-      {/* ✅ Date réception */}
       <td className="py-2.5 px-3 hidden md:table-cell">
         {project.startDate ? (
           <span className="text-xs flex items-center gap-1 text-slate-600">
@@ -499,18 +629,16 @@ function ProjectRow({ project, redacteurs, onEdit, onAssign }: {
         )}
       </td>
       
-      {/* ✅ Durée */}
       <td className="py-2.5 px-3 hidden sm:table-cell text-center">
-        {project.durationMin ? (
-          <span className="text-sm font-semibold text-indigo-600">
-            {project.durationMin}<span className="text-xs font-normal text-slate-400"> min</span>
-          </span>
-        ) : (
-          <span className="text-slate-300 text-xs">—</span>
-        )}
+        <DurationCell 
+          value={project.durationMin}
+          projectId={project.id}
+          onSave={onDurationEdit}
+          isEditing={editingDurationId === project.id}
+          onEditToggle={setEditingDurationId}
+        />
       </td>
       
-      {/* ✅ Échéance avec alerte */}
       <td className="py-2.5 px-3">
         <span className={`text-xs font-medium flex items-center gap-1 ${isLate ? 'text-red-600' : isSoon ? 'text-orange-500' : 'text-slate-600'}`}>
           {(isLate || isSoon) && <AlertCircle className="w-3 h-3" />}
@@ -518,7 +646,6 @@ function ProjectRow({ project, redacteurs, onEdit, onAssign }: {
         </span>
       </td>
       
-      {/* ✅ Rédacteur */}
       <td className="py-2 px-3">
         <Select
           value={project.redacteurId || ''}
@@ -536,7 +663,6 @@ function ProjectRow({ project, redacteurs, onEdit, onAssign }: {
         </Select>
       </td>
       
-      {/* ✅ Commentaire (truncate) */}
       <td className="py-2.5 px-3 max-w-[200px] hidden lg:table-cell">
         {project.comment ? (
           <span className="text-xs text-slate-500 truncate block" title={project.comment}>
@@ -547,11 +673,12 @@ function ProjectRow({ project, redacteurs, onEdit, onAssign }: {
         )}
       </td>
 
-      {/* ✅ Bouton édition */}
       <td className="py-2.5 px-3 text-right">
-        <button onClick={onEdit} className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-indigo-100 text-indigo-500 transition-all">
-          <Edit3 className="w-3.5 h-3.5" />
-        </button>
+        <div className="flex items-center justify-end gap-1">
+          <button onClick={onEdit} className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-indigo-100 text-indigo-500 transition-all">
+            <Edit3 className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </td>
     </tr>
   )
@@ -573,7 +700,6 @@ export default function DispatchPage() {
   const [pendingAssignments, setPendingAssignments] = useState<Record<string, string>>({})
   const [dispatching, setDispatching] = useState(false)
   
-  // ✅ Filtres et tri
   const [filterRedacteur, setFilterRedacteur] = useState<string>('all')
   const [sortField, setSortField] = useState<SortField>('deadline')
   const [sortOrder, setSortOrder] = useState<SortOrder>('asc')
@@ -590,9 +716,9 @@ export default function DispatchPage() {
     try {
       setLoading(true)
       const res = await fetch('/api/projects/dispatch')
-      const data = await res.json()
-      setProjects(data.projects || [])
-      setRedacteurs(data.redacteurs || [])
+      const apiData = await res.json()
+      setProjects(apiData.projects || [])
+      setRedacteurs(apiData.redacteurs || [])
     } catch { toast.error('Erreur de chargement') }
     finally { setLoading(false) }
   }, [])
@@ -602,6 +728,19 @@ export default function DispatchPage() {
   const handleAssign = (projectId: string, redacteurId: string) => {
     setPendingAssignments(prev => ({ ...prev, [projectId]: redacteurId }))
     setProjects(prev => prev.map(p => p.id === projectId ? { ...p, redacteurId } : p))
+  }
+
+  const handleDurationUpdate = async (projectId: string, duration: number | null) => {
+    try {
+      const res = await fetch('/api/projects/dispatch', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectIds: [projectId], durationMin: duration }),
+      })
+      if (!res.ok) throw new Error()
+      toast.success('Durée mise à jour')
+      fetchData()
+    } catch { toast.error('Erreur mise à jour durée') }
   }
 
   const handleDispatchAll = async () => {
@@ -625,25 +764,25 @@ export default function DispatchPage() {
     finally { setDispatching(false) }
   }
 
-  const handleAddProject = async (data: any) => {
+  const handleAddProject = async (formData: any) => {
     try {
       const res = await fetch('/api/projects/dispatch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
+        body: JSON.stringify(formData),
       })
       if (!res.ok) {
         const err = await res.json()
         console.error('POST error:', err)
         throw new Error(err.error)
       }
-      const proj = await res.json()
+      const newProject = await res.json()
 
-      if (data.redacteurId && data.redacteurId !== 'none') {
-        setPendingAssignments(prev => ({ ...prev, [proj.id]: data.redacteurId }))
-        setProjects(prev => [...prev, { ...proj, redacteurId: data.redacteurId }])
+      if (formData.redacteurId && formData.redacteurId !== 'none') {
+        setPendingAssignments(prev => ({ ...prev, [newProject.id]: formData.redacteurId }))
+        setProjects(prev => [...prev, { ...newProject, redacteurId: formData.redacteurId }])
       } else {
-        setProjects(prev => [...prev, proj])
+        setProjects(prev => [...prev, newProject])
       }
 
       toast.success('Projet ajouté à la bannette')
@@ -653,7 +792,7 @@ export default function DispatchPage() {
     }
   }
 
-  const handleImportProjects = async (parsedProjects: (ParsedProject & { redacteurId?: string })[]) => {
+  const handleImportProjects = async (parsedProjects: (ParsedProject & { redacteurId?: string; durationMin?: number | null })[]) => {
     try {
       const res = await fetch('/api/projects/dispatch/bulk', {
         method: 'POST',
@@ -661,25 +800,25 @@ export default function DispatchPage() {
         body: JSON.stringify({ projects: parsedProjects }),
       })
       if (!res.ok) throw new Error()
-      const data = await res.json()
-      toast.success(`${data.count} projet(s) importé(s)`)
+      const importData = await res.json()
+      toast.success(`${importData.count} projet(s) importé(s)`)
       fetchData()
     } catch { toast.error("Erreur lors de l'import") }
   }
 
-  const handleEditProject = async (data: any) => {
+  const handleEditProject = async (formData: any) => {
     try {
       const res = await fetch('/api/projects/dispatch', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
+        body: JSON.stringify(formData),
       })
       if (!res.ok) throw new Error()
-      if (data.redacteurId) {
+      if (formData.redacteurId) {
         await fetch('/api/projects/dispatch', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ projectIds: [data.id], redacteurId: data.redacteurId }),
+          body: JSON.stringify({ projectIds: [formData.id], redacteurId: formData.redacteurId }),
         })
       }
       toast.success('Projet modifié')
@@ -687,7 +826,6 @@ export default function DispatchPage() {
     } catch { toast.error('Erreur lors de la modification') }
   }
 
-  // ✅ FILTRER et TRIER les projets
   const filtered = projects
     .filter(p => {
       if (!search) return true
@@ -716,7 +854,6 @@ export default function DispatchPage() {
       return 0
     })
 
-  // ✅ CALCULER TOTAUX
   const totalProjects = filtered.length
   const totalMinutes = filtered.reduce((sum, p) => sum + (p.durationMin || 0), 0)
   const pendingCount = Object.values(pendingAssignments).filter(v => v).length
@@ -753,7 +890,7 @@ export default function DispatchPage() {
           </div>
         </div>
 
-        {/* ✅ Stats Totaux */}
+        {/* Stats Totaux */}
         <div className="grid sm:grid-cols-3 gap-4">
           <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
             <div className="flex items-center justify-between">
@@ -803,7 +940,7 @@ export default function DispatchPage() {
           </div>
         )}
 
-        {/* ✅ Recherche + Filtres + Tri */}
+        {/* Recherche + Filtres + Tri */}
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -815,7 +952,6 @@ export default function DispatchPage() {
             />
           </div>
           
-          {/* Filtre rédacteur */}
           <Select value={filterRedacteur} onValueChange={setFilterRedacteur}>
             <SelectTrigger className="w-48 h-9">
               <SelectValue placeholder="Filtrer par rédacteur" />
@@ -829,7 +965,6 @@ export default function DispatchPage() {
             </SelectContent>
           </Select>
           
-          {/* Tri */}
           <Select value={sortField} onValueChange={(v) => setSortField(v as SortField)}>
             <SelectTrigger className="w-40 h-9">
               <SelectValue placeholder="Trier par" />
@@ -843,7 +978,6 @@ export default function DispatchPage() {
             </SelectContent>
           </Select>
           
-          {/* Ordre */}
           <Button
             variant="outline"
             size="sm"
@@ -884,6 +1018,7 @@ export default function DispatchPage() {
                       redacteurs={redacteurs}
                       onEdit={() => setEditingProject(p)}
                       onAssign={handleAssign}
+                      onDurationEdit={handleDurationUpdate}
                     />
                   ))}
                 </tbody>

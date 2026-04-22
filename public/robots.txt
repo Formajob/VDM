@@ -20,7 +20,7 @@ Allow: /
  
 cd C:\Users\User18\Desktop\VDM
 git add .
-git commit -m "feat: améliorations pages studio + Redaction  "
+git commit -m "feat: correction affichage projets studio  "
 git push origin main
 
  */}
@@ -28,3 +28,4 @@ git push origin main
  git add .
  git commit -m "fix:  Projet VD" 
  git push  origin main
+ 

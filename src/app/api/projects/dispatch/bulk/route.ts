@@ -1,4 +1,4 @@
-
+// src/app/api/projects/dispatch/bulk/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
@@ -8,51 +8,90 @@ export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
-    if ((session.user as any).role !== 'ADMIN') return NextResponse.json({ error: 'Admin requis' }, { status: 403 })
 
-    const { projects } = await req.json()
-    if (!projects?.length) return NextResponse.json({ error: 'Aucun projet' }, { status: 400 })
+    const body = await req.json()
+    const { projects } = body
 
-    const rows = projects.map((p: any) => ({
-      // ✅ ID = nom brut du fichier (pour suivi client)
-      id: p.rawName || p.name || `${p.seriesName}_${p.deadline}`,
-      name: p.rawName || p.name || `${p.seriesName}_${p.deadline}`,
-      seriesName: p.seriesName || '',
-      season: p.season || null,
-      episodeNumber: p.episodeNumber || null,
-      broadcastChannel: p.broadcastChannel || null,
-      projectCode: p.projectCode || null,
-      deadline: p.deadline,
-      startDate: p.startDate || null,
-      durationMin: p.durationMin !== undefined ? parseFloat(p.durationMin) : null,
-      pageCount: null,
-      comment: p.comment || null,
-      // ✅ TOUS commencent en DISPATCH (même avec redacteurId)
-      workflowStep: 'DISPATCH',
-      // ✅ Stocker redacteurId mais ne pas changer workflowStep
-      redacteurId: (p.redacteurId && p.redacteurId !== 'none') ? p.redacteurId : null,
-      status: 'PAS_ENCORE',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    }))
+    if (!projects || !Array.isArray(projects)) {
+      return NextResponse.json({ error: 'projects array requis' }, { status: 400 })
+    }
 
+    const validProjects = projects.filter((p: any) => p.valid)
+    
+    const existingNames = new Set<string>()
+    const existingCodes = new Set<string>()
+    
+    const namesToCheck = validProjects.map((p: any) => p.rawName || p.seriesName).filter(Boolean)
+    const codesToCheck = validProjects.map((p: any) => p.projectCode).filter(Boolean)
+    
+    if (namesToCheck.length > 0) {
+      // ✅ CORRECTION: Utiliser { data, error }
+      const { data, error } = await supabaseAdmin
+        .from('Project')
+        .select('name, projectCode')
+        .in('name', namesToCheck)
+      
+      if (!error && data) {
+        data.forEach((p: any) => {
+          if (p.name) existingNames.add(p.name)
+          if (p.projectCode) existingCodes.add(p.projectCode)
+        })
+      }
+    }
+
+    const projectsToInsert = validProjects
+      .filter((p: any) => {
+        const name = p.rawName || p.seriesName
+        const code = p.projectCode
+        return !existingNames.has(name) && (!code || !existingCodes.has(code))
+      })
+      .map((p: any) => ({
+        name: p.rawName || p.seriesName,
+        seriesName: p.seriesName,
+        season: p.season || null,
+        episodeNumber: p.episodeNumber || null,
+        broadcastChannel: p.broadcastChannel || null,
+        projectCode: p.projectCode || null,
+        deadline: p.deadline,
+        startDate: null,
+        durationMin: p.durationMin || null,
+        comment: p.comment || null,
+        redacteurId: p.redacteurId || null,
+        status: 'PAS_ENCORE',
+        workflowStep: p.redacteurId ? 'REDACTION' : 'DISPATCH',
+        language: 'fr',
+        totalEpisodes: 0
+      }))
+
+    if (projectsToInsert.length === 0) {
+      return NextResponse.json({ 
+        count: 0, 
+        message: 'Aucun nouveau projet à importer',
+        skipped: validProjects.length 
+      })
+    }
+
+    // ✅ CORRECTION: Utiliser { data, error }
     const { data, error } = await supabaseAdmin
       .from('Project')
-      .insert(rows)
-      .select('id, name, workflowStep')
+      .insert(projectsToInsert)
+      .select()
 
     if (error) {
       console.error('❌ Bulk insert error:', error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
+      throw error
     }
-    
+
+    console.log('✅ [DISPATCH BULK] Inserted:', data?.length, 'projects')
+
     return NextResponse.json({ 
       success: true, 
       count: data?.length || 0,
-      ids: data?.map((d: any) => d.id) || []
+      skipped: validProjects.length - (data?.length || 0),
+      projects: data 
     })
   } catch (e: any) {
-    console.error('❌ Bulk exception:', e)
-    return NextResponse.json({ error: e.message }, { status: 500 })
+    console.error('❌ [DISPATCH BULK] Error:', e)
+    return NextResponse.json({ error: e.message || 'Erreur import' }, { status: 500 })
   }
 }
