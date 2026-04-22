@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Accès réservé au studio' }, { status: 403 })
     }
 
-    // ✅ CORRECTION: Requête pour TOUS les projets avec status = 'FAIT' (rédaction faite)
+    // ✅ Requête - TOUS les projets avec status = 'FAIT' (rédaction faite)
     let query = supabaseAdmin
       .from('Project')
       .select(`
@@ -32,13 +32,9 @@ export async function GET(req: NextRequest) {
         User:redacteurId (id, name),
         User_1:techSonId (id, name)
       `)
-      .eq('status', 'FAIT')  // ✅ Rédaction doit être FAIT
+      .eq('status', 'FAIT')
 
-    // ✅ CORRECTION: Filtrer par workflowStep approprié pour le studio
-    // DISPATCH = pas encore assigné
-    // REDACTION = rédaction en cours ou faite (à vérifier)
-    // STUDIO = rédaction faite, mixage en cours
-    // LIVRAISON = mixage fait
+    // ✅ Filtrer par workflowStep approprié pour le studio
     query = query.in('workflowStep', ['DISPATCH', 'REDACTION', 'STUDIO', 'LIVRAISON'])
 
     // ✅ Filtrer par mixStatus si spécifié
@@ -54,10 +50,9 @@ export async function GET(req: NextRequest) {
       query = query.eq('mixStatus', 'SIGNALE')
     }
 
-    // ✅ CORRECTION: Si pas admin et Tech Son, filtrer par techSonId
+    // ✅ Si pas admin et Tech Son, filtrer par techSonId
     // MAIS montrer aussi les projets sans techSonId (à assigner)
     if (!isAdmin && userJobRole === 'TECH_SON') {
-      // Tech Son voit SES projets + les projets non assignés (à dispatcher)
       query = query.or(`techSonId.eq.${userId},techSonId.is.null`)
     }
 
@@ -171,20 +166,29 @@ export async function POST(req: NextRequest) {
       const updateData: any = {}
       
       if (mixStatus) updateData.mixStatus = mixStatus
-      if (mixedAt) updateData.mixedAt = mixedAt
+      
+      // ✅ CORRECTION: Gérer mixedAt null correctement (pour suppression de date)
+      if (mixedAt !== undefined) {
+        updateData.mixedAt = mixedAt  // null ou ISO string, les deux sont valides
+      }
+      
       if (techSonId !== undefined) updateData.techSonId = techSonId
       if (comment !== undefined) updateData.comment = comment
       
+      // ✅ Si mixStatus = 'FAIT' et pas de mixedAt, mettre la date actuelle
       if (mixStatus === 'FAIT') {
         updateData.isMixed = true
         updateData.workflowStep = 'LIVRAISON'
+        if (!updateData.mixedAt) {
+          updateData.mixedAt = new Date().toISOString()
+        }
       }
       
       if (mixStatus === 'EN_COURS' && !techSonId) {
         updateData.workflowStep = 'STUDIO'
       }
       
-      console.log('🔧 [STUDIO API] Update data:', updateData)
+      console.log('🔧 [STUDIO API] Update ', updateData)
       
       const { error } = await supabaseAdmin
         .from('Project')

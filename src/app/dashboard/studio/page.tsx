@@ -216,18 +216,20 @@ function CompleteModal({ project, onClose, onComplete }: any) {
 }
 
 // ✅ CORRECTION: Modal Modifier (Admin, Livreur, Narrateur)
+// ─── Modal Modifier (Admin, Livreur, Narrateur) ──────────────────
 function EditModal({ project, techSons, onClose, onEdit, canEdit }: any) {
   const [mixStatus, setMixStatus] = useState(project?.mixStatus || 'PAS_ENCORE')
   const [mixedAt, setMixedAt] = useState(project?.mixedAt?.split('T')[0] || '')
-  const [techSonId, setTechSonId] = useState(project?.techSonId || '')
+  const [techSonId, setTechSonId] = useState(project?.techSonId || 'none')
   const [comment, setComment] = useState(project?.comment || '')
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     if (project) {
       setMixStatus(project.mixStatus || 'PAS_ENCORE')
-      setMixedAt(project.mixedAt?.split('T')[0] || '')
-      setTechSonId(project.techSonId || '')
+      // ✅ CORRECTION: Gérer la date correctement
+      setMixedAt(project.mixedAt ? project.mixedAt.split('T')[0] : '')
+      setTechSonId(project.techSonId || 'none')
       setComment(project.comment || '')
       setSaving(false)
     }
@@ -237,7 +239,14 @@ function EditModal({ project, techSons, onClose, onEdit, canEdit }: any) {
 
   const handleEdit = async () => {
     setSaving(true)
-    await onEdit(project.id, { mixStatus, mixedAt, techSonId, comment })
+    
+    // ✅ CORRECTION: Convertir '' en null pour la date
+    await onEdit(project.id, { 
+      mixStatus, 
+      mixedAt: mixedAt ? new Date(mixedAt).toISOString() : null,  // ✅ '' devient null
+      techSonId: techSonId === 'none' ? null : techSonId, 
+      comment 
+    })
     setSaving(false)
   }
 
@@ -271,7 +280,22 @@ function EditModal({ project, techSons, onClose, onEdit, canEdit }: any) {
 
           <div className="space-y-1.5">
             <Label>Date de mixage</Label>
-            <Input type="date" value={mixedAt} onChange={e => setMixedAt(e.target.value)} />
+            <Input 
+              type="date" 
+              value={mixedAt} 
+              onChange={e => setMixedAt(e.target.value)} 
+              // ✅ CORRECTION: Permettre de vider le champ
+              placeholder="YYYY-MM-DD"
+            />
+            {mixedAt && (
+              <button 
+                type="button"
+                onClick={() => setMixedAt('')}
+                className="text-xs text-red-500 hover:text-red-700 underline"
+              >
+                ✕ Effacer la date
+              </button>
+            )}
           </div>
 
           <div className="space-y-1.5">
@@ -279,11 +303,11 @@ function EditModal({ project, techSons, onClose, onEdit, canEdit }: any) {
             <Select value={techSonId} onValueChange={setTechSonId}>
               <SelectTrigger><SelectValue placeholder="Sélectionner un tech son" /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Aucun</SelectItem>
+                <SelectItem value="none">Aucun</SelectItem>
                 {techSons && techSons.length > 0 ? (
                   techSons.map((ts: any) => <SelectItem key={ts.id} value={ts.id}>{ts.name}</SelectItem>)
                 ) : (
-                  <SelectItem value="" disabled>Aucun tech son disponible</SelectItem>
+                  <SelectItem value="none" disabled>Aucun tech son disponible</SelectItem>
                 )}
               </SelectContent>
             </Select>
