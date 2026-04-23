@@ -17,10 +17,10 @@ Allow: /
 
 
  {/* 
- 
+ python convert_excel.py 
 cd C:\Users\User18\Desktop\VDM
 git add .
-git commit -m "feat: correction affichage projets studio  "
+git commit -m "feat: page dashboard projets + page livraison  "
 git push origin main
 
  */}

@@ -136,21 +136,27 @@ setMembers(membersList)
 }, [isAdmin])
 
   const fetchProjects = async () => {
-    try {
-      setLoading(true)
-      const params = new URLSearchParams()
-      if (statusFilter !== 'ALL') params.append('status', statusFilter)
-      if (deptFilter !== 'TOUS') params.append('workflowStep', deptFilter)
-      params.append('sortBy', sortBy)
-      const res = await fetch(`/api/projects?${params.toString()}`)
-      if (!res.ok) throw new Error()
-      setProjects(await res.json())
-    } catch {
-      toast.error('Échec du chargement des projets')
-    } finally {
-      setLoading(false)
-    }
+  try {
+    setLoading(true)
+    const params = new URLSearchParams()
+    if (statusFilter !== 'ALL') params.append('status', statusFilter)
+    if (deptFilter !== 'TOUS') params.append('workflowStep', deptFilter)
+    params.append('sortBy', sortBy)
+    
+    const res = await fetch(`/api/projects?${params.toString()}`)
+    if (!res.ok) throw new Error()
+    
+    // ✅ CORRECTION: Extraire l'array projects de la réponse
+    const data = await res.json()
+    setProjects(data.projects || [])  // ← ← ← C'est la seule ligne changée
+    
+  } catch {
+    toast.error('Échec du chargement des projets')
+    setProjects([])  // ← ← ← Important: initialiser à [] en cas d'erreur
+  } finally {
+    setLoading(false)
   }
+}
 
   const updateProjectStatus = async (projectId: string, newStatus: string) => {
     try {
