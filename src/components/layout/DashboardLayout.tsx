@@ -4,6 +4,7 @@ import { useSession, signOut } from 'next-auth/react'
 import { useRouter, usePathname } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+
 import {
   LayoutDashboard, Clock, Settings, FileText,
   LogOut, Users, Zap, Menu, X, FileText as FileIcon,
@@ -12,6 +13,8 @@ import {
 } from 'lucide-react'
 import { useState } from 'react'
 import { useDemoMode, DemoUser } from '@/hooks/useDemoMode'
+// ✅ AJOUT: Import du ChatWidget
+import ChatWidget from '@/components/chat/ChatWidget'
 
 interface NavItem {
   label: string
@@ -37,27 +40,27 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const user: DemoUser | null = (data?.user as DemoUser) || demoUser || null
   
   const isAdmin = user?.role === 'ADMIN'
-  const isMember = user?.role === 'MEMBER'  // ✅ AJOUTÉ: Variable isMember
+  const isMember = user?.role === 'MEMBER'
   const jobRole = (user as any)?.jobRole || ''
 
   // Sous-menus Projets VD selon le rôle
- const projetsChildren = isAdmin
-  ? [
-      { label: 'Dashboard', href: '/dashboard/projects', icon: TrendingUp },
-      { label: 'Dispatch',   href: '/dashboard/dispatch',   icon: Package },
-      { label: 'Rédaction',  href: '/dashboard/redaction',  icon: Edit3 },
-      { label: 'Studio',     href: '/dashboard/studio',     icon: Headphones }, // ← AJOUTER
-      { label: 'Livraison',  href: '/dashboard/livraison',  icon: Package },
-    ]
-  : jobRole === 'REDACTEUR'
-  ? [{ label: 'Rédaction', href: '/dashboard/redaction', icon: Edit3 }]
-  : jobRole === 'NARRATEUR' || jobRole === 'TECH_SON' || jobRole === 'LIVREUR' || jobRole === 'ADMIN'
-  ? [{ label: 'Studio', href: '/dashboard/studio', icon: Headphones }] // ← MODIFIER
-  : jobRole === 'LIVREUR'
-  ? [{ label: 'Livraison', href: '/dashboard/livraison', icon: Package }]
-  : []
+  const projetsChildren = isAdmin
+    ? [
+        { label: 'Dashboard', href: '/dashboard/projects', icon: TrendingUp },
+        { label: 'Dispatch',   href: '/dashboard/dispatch',   icon: Package },
+        { label: 'Rédaction',  href: '/dashboard/redaction',  icon: Edit3 },
+        { label: 'Studio',     href: '/dashboard/studio',     icon: Headphones },
+        { label: 'Livraison',  href: '/dashboard/livraison',  icon: Package },
+      ]
+    : jobRole === 'REDACTEUR'
+    ? [{ label: 'Rédaction', href: '/dashboard/redaction', icon: Edit3 }]
+    : jobRole === 'NARRATEUR' || jobRole === 'TECH_SON' || jobRole === 'LIVREUR'
+    ? [{ label: 'Studio', href: '/dashboard/studio', icon: Headphones }]
+    : jobRole === 'LIVREUR'
+    ? [{ label: 'Livraison', href: '/dashboard/livraison', icon: Package }]
+    : []
 
-  // ✅ CORRECTION: Navigation avec UN SEUL item Performance
+  // Navigation avec UN SEUL item Performance
   const navigation: NavItem[] = [
     { label: 'Tableau de bord', href: '/dashboard', icon: LayoutDashboard },
     {
@@ -76,7 +79,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       icon: Calendar,
       children: isAdmin ? [
         { label: 'Gestion Planning',   href: '/admin/planning/management', icon: Calendar },
-      
         { label: 'Rapports',           href: '/admin/planning/reports',    icon: FileText },
       ] : undefined,
     },
@@ -86,12 +88,11 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       icon: FileText,
       children: projetsChildren.length > 0 ? projetsChildren : undefined,
     },
-    // ✅ CORRECTION: UN SEUL item Performance avec routing conditionnel
     {
       label: 'Performance',
       href: isMember ? '/dashboard/performance/member' : '/dashboard/performance',
       icon: TrendingUp,
-      adminOnly: false,  // Accessible par tous
+      adminOnly: false,
     },
     { label: 'Administration', href: '/admin', icon: Settings, adminOnly: true },
   ]
@@ -229,6 +230,9 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           {children}
         </div>
       </main>
+
+      {/* ✅ AJOUT: ChatWidget flottant - apparaît sur toutes les pages du dashboard */}
+      <ChatWidget />
     </div>
   )
 }
