@@ -202,9 +202,29 @@ function EditModal({ project, onClose, onEdit, isAdmin }: any) {
           </div>
 
           <div className="space-y-1.5">
-            <Label>Date de rédaction</Label>
-            <Input type="date" value={writtenAt} onChange={e => setWrittenAt(e.target.value)} />
-          </div>
+  <Label>Date de rédaction</Label>
+  <div className="flex items-center gap-2">
+    <Input 
+      type="date" 
+      value={writtenAt} 
+      onChange={e => setWrittenAt(e.target.value)} 
+      className="flex-1"
+    />
+    {writtenAt && (
+      <Button 
+        type="button"
+        variant="ghost" 
+        size="sm" 
+        className="h-9 w-9 p-0 text-slate-400 hover:text-red-600 hover:bg-red-50"
+        onClick={() => setWrittenAt('')}
+        title="Effacer la date"
+      >
+        ×
+      </Button>
+    )}
+  </div>
+  <p className="text-xs text-slate-400">Laisser vide pour supprimer la date</p>
+</div>
 
           <div className="space-y-1.5">
             <Label>Nombre de pages</Label>
@@ -475,36 +495,42 @@ export default function RedactionPage() {
     } catch { toast.error('Erreur connexion') }
   }
 
-  // Handler pour modifier un projet (Admin)
-  const handleEdit = async (projectId: string, data: any) => {
-    try {
-      const res = await fetch('/api/projects/redaction', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          projectId, 
-          action: 'update',
-          status: data.status,
-          writtenAt: data.writtenAt ? new Date(data.writtenAt).toISOString() : null,
-          pageCount: data.pageCount,
-          durationMin: data.durationMin,
-          comment: data.comment
-        })
+ // Handler pour modifier un projet (Admin)
+const handleEdit = async (projectId: string, data: any) => {
+  try {
+    const res = await fetch('/api/projects/redaction', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        projectId, 
+        action: 'update',
+        status: data.status,
+        // ✅ CORRECTION: writtenAt peut être null si vide
+        writtenAt: data.writtenAt ? new Date(data.writtenAt).toISOString() : null,
+        pageCount: data.pageCount,
+        durationMin: data.durationMin,
+        comment: data.comment
       })
-      if (res.ok) {
-        toast.success('Projet modifié')
-        setLoading(true)
-        const params = new URLSearchParams()
-        if (statusFilter !== 'ALL') params.set('status', statusFilter.toLowerCase())
-        const res2 = await fetch(`/api/projects/redaction?${params.toString()}`)
-        const data2 = await res2.json()
-        setProjects(data2.projects || [])
-        setStats(data2.stats || { total: 0, pas_encore: 0, en_cours: 0, fait: 0, en_retard: 0 })
-        setLoading(false)
-        setEditingProject(null)
-      } else { toast.error('Erreur modification') }
-    } catch { toast.error('Erreur connexion') }
+    })
+    if (!res.ok) {
+      const err = await res.json()
+      throw new Error(err.error || 'Erreur')
+    }
+    toast.success('Projet modifié')
+    // Recharger les projets
+    setLoading(true)
+    const params = new URLSearchParams()
+    if (statusFilter !== 'ALL') params.set('status', statusFilter.toLowerCase())
+    const res2 = await fetch(`/api/projects/redaction?${params.toString()}`)
+    const data2 = await res2.json()
+    setProjects(data2.projects || [])
+    setStats(data2.stats || { total: 0, pas_encore: 0, en_cours: 0, fait: 0, en_retard: 0 })
+    setLoading(false)
+    setEditingProject(null)
+  } catch (e: any) {
+    toast.error(`Erreur: ${e.message}`)
   }
+}
 
   // ✅ NOUVEAU: Handler pour réassigner un projet à un autre rédacteur
   const handleReassign = async (projectId: string, newRedacteurId: string) => {

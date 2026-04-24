@@ -187,32 +187,37 @@ export async function POST(req: NextRequest) {
       console.log('✅ [REDACTION API] Projet signalé:', projectId)
       
     // ✅ Action: Modifier un projet (Admin seulement)
-    } else if (action === 'update') {
-      if (!isAdmin) {
-        return NextResponse.json({ error: 'Non autorisé - Admin requis' }, { status: 403 })
-      }
-      
-      const updateData: any = {}
-      
-      if (status) updateData.status = status
-      if (writtenAt) updateData.writtenAt = writtenAt
-      if (pageCount !== undefined) updateData.pageCount = pageCount
-      if (durationMin !== undefined) updateData.durationMin = durationMin
-      if (comment !== undefined) updateData.comment = comment
-      
-      console.log('🔧 [REDACTION API] Update data:', updateData)
-      
-      const { error } = await supabaseAdmin
-        .from('Project')
-        .update(updateData)
-        .eq('id', projectId)
-      
-      if (error) {
-        console.error('❌ [REDACTION API] Error update:', error)
-        throw error
-      }
-      console.log('✅ [REDACTION API] Projet modifié:', projectId)
-    }
+} else if (action === 'update') {
+  if (!isAdmin) {
+    return NextResponse.json({ error: 'Non autorisé - Admin requis' }, { status: 403 })
+  }
+  
+  const updateData: any = {}
+  
+  if (status) updateData.status = status
+  
+  // ✅ CORRECTION: Accepter writtenAt null pour effacer la date
+  if (writtenAt !== undefined) {
+    updateData.writtenAt = writtenAt || null  // Si vide string, convertir à null
+  }
+  
+  if (pageCount !== undefined) updateData.pageCount = pageCount
+  if (durationMin !== undefined) updateData.durationMin = durationMin
+  if (comment !== undefined) updateData.comment = comment
+  
+  console.log('🔧 [REDACTION API] Update ', updateData)
+  
+  const { error } = await supabaseAdmin
+    .from('Project')
+    .update(updateData)
+    .eq('id', projectId)
+  
+  if (error) {
+    console.error('❌ [REDACTION API] Error update:', error)
+    throw error
+  }
+  console.log('✅ [REDACTION API] Projet modifié:', projectId)
+}
 
     return NextResponse.json({ success: true })
   } catch (e: any) {
