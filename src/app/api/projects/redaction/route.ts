@@ -81,18 +81,59 @@ export async function GET(req: NextRequest) {
   }
 }
 
+// src/app/api/projects/redaction/route.ts
+
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
 
     const body = await req.json()
-    const { projectId, action, comment, status, writtenAt, pageCount, durationMin } = body
+    const { projectId, action, comment, status, writtenAt, pageCount, durationMin, redacteurId } = body  // ✅ Ajouter redacteurId
     const userId = (session.user as any).id
     const userRole = (session.user as any).role
     const isAdmin = userRole === 'ADMIN'
 
     console.log('🔍 [REDACTION API] POST:', { action, projectId, isAdmin })
+
+    // ✅ Action: Réassigner à un autre rédacteur (Admin seulement)
+    if (action === 'reassign') {
+      if (!isAdmin) {
+        return NextResponse.json({ error: 'Non autorisé - Admin requis' }, { status: 403 })
+      }
+      if (!redacteurId) {
+        return NextResponse.json({ error: 'Nouveau rédacteur requis' }, { status: 400 })
+      }
+
+      // Vérifier que le rédacteur existe
+      const { data:writer } = await supabaseAdmin
+        .from('User')
+        .select('id')
+        .eq('id', redacteurId)
+        .eq('jobRole', 'REDACTEUR')
+        .single()
+      
+      if (!writer) {
+        return NextResponse.json({ error: 'Rédacteur invalide' }, { status: 400 })
+      }
+
+      // Mettre à jour le redacteurId du projet
+      const { error } = await supabaseAdmin
+        .from('Project')
+        .update({
+          redacteurId: redacteurId,
+          updatedAt: new Date().toISOString()
+        })
+        .eq('id', projectId)
+      
+      if (error) {
+        console.error('❌ [REDACTION API] Error reassign:', error)
+        return NextResponse.json({ error: error.message }, { status: 500 })
+      }
+      
+      console.log('✅ [REDACTION API] Project reassigned:', projectId, 'to', redacteurId)
+      return NextResponse.json({ success: true })
+    }
 
     // ✅ Action: Commencer la rédaction
     if (action === 'commencer') {
@@ -119,7 +160,7 @@ export async function POST(req: NextRequest) {
           writtenAt: new Date().toISOString(),
           isWritten: true,
           comment: comment || null,
-          workflowStep: 'STUDIO'  // Passe au studio après rédaction
+          workflowStep: 'STUDIO'
         })
         .eq('id', projectId)
       
@@ -145,7 +186,7 @@ export async function POST(req: NextRequest) {
       }
       console.log('✅ [REDACTION API] Projet signalé:', projectId)
       
-    // ✅ CORRECTION: Action: Modifier un projet (Admin seulement)
+    // ✅ Action: Modifier un projet (Admin seulement)
     } else if (action === 'update') {
       if (!isAdmin) {
         return NextResponse.json({ error: 'Non autorisé - Admin requis' }, { status: 403 })

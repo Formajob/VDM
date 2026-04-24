@@ -4,7 +4,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase'
 
-// GET: Récupérer les conversations de l'utilisateur
+// GET: Récupérer les conversations
 export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -12,47 +12,54 @@ export async function GET(req: NextRequest) {
 
     const userId = (session.user as any).id
     
-    // ✅ CORRECTION: Utiliser { data, error }
     const { data: conversations, error } = await supabaseAdmin
       .from('conversations')
-      .select(`
-        *,
-        participants:participants(
-          user_id,
-          user:auth.users!participants_user_id_fkey(id, email)
-        ),
-        messages:messages(
-          id,
-          content,
-          sender_id,
-          created_at
-        )
-      `)
-      .eq('participants.user_id', userId)
+      .select('*')
       .order('updated_at', { ascending: false })
 
     if (error) throw error
 
-    const formattedConversations = conversations?.map((conv: any) => {
-      const otherParticipant = conv.participants?.find(
-        (p: any) => p.user_id !== userId
-      )
-      const lastMessage = conv.messages?.[0]
+    const userConversations: any[] = []
+    
+    for (const conv of conversations || []) {
+      const { data: participants, error: partError } = await supabaseAdmin
+        .from('participants')
+        .select('user_id')
+        .eq('conversation_id', conv.id)
       
-      return {
-        id: conv.id,
-        otherUser: otherParticipant?.user,
-        lastMessage: lastMessage ? {
-          id: lastMessage.id,
-          content: lastMessage.content,
-          sender_id: lastMessage.sender_id,
-          created_at: lastMessage.created_at
-        } : null,
-        updated_at: conv.updated_at
-      }
-    })
+      if (partError) continue
+      
+      const isParticipant = participants?.some((p: any) => p.user_id === userId)
+      if (!isParticipant) continue
 
-    return NextResponse.json({ conversations: formattedConversations || [] })
+      const { data: messages, error: msgError } = await supabaseAdmin
+        .from('messages')
+        .select('id, content, sender_id, created_at')
+        .eq('conversation_id', conv.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+
+      const otherUserId = participants?.find((p: any) => p.user_id !== userId)?.user_id
+      
+      let otherUser: any = null
+      if (otherUserId) {
+        const { data: users, error: userError } = await supabaseAdmin
+          .from('User')
+          .select('id, name, email, jobRole')
+          .eq('id', otherUserId)
+          .single()
+        otherUser = users
+      }
+
+      userConversations.push({
+        id: conv.id,
+        otherUser,
+        lastMessage: messages?.[0] || null,
+        updated_at: conv.updated_at
+      })
+    }
+
+    return NextResponse.json({ conversations: userConversations })
   } catch (e: any) {
     console.error('❌ [MESSAGES API] GET error:', e)
     return NextResponse.json({ error: e.message }, { status: 500 })
@@ -72,26 +79,32 @@ export async function POST(req: NextRequest) {
     let convId = conversationId
 
     if (!convId && receiverId) {
-      // ✅ CORRECTION: Utiliser { data, error }
-      const { data: convWithReceiver, error: checkError } = await supabaseAdmin
+      const { data: conversations, error: checkError } = await supabaseAdmin
         .from('conversations')
-        .select(`
-          id,
-          participants:participants(user_id)
-        `)
+        .select('id')
         .eq('type', 'private')
 
       if (checkError) throw checkError
 
-      const conversationExists = convWithReceiver?.find((conv: any) => {
-        const participantIds = conv.participants?.map((p: any) => p.user_id) || []
-        return participantIds.includes(senderId) && participantIds.includes(receiverId)
-      })
+      let conversationExists = false
+      for (const conv of conversations || []) {
+        const { data: participants, error: partError } = await supabaseAdmin
+          .from('participants')
+          .select('user_id')
+          .eq('conversation_id', conv.id)
+        
+        if (partError) continue
+        
+        const participantIds = participants?.map((p: any) => p.user_id) || []
+        
+        if (participantIds.includes(senderId) && participantIds.includes(receiverId)) {
+          convId = conv.id
+          conversationExists = true
+          break
+        }
+      }
 
-      if (conversationExists) {
-        convId = conversationExists.id
-      } else {
-        // ✅ CORRECTION: Utiliser { data, error }
+      if (!conversationExists) {
         const { data: newConv, error: convError } = await supabaseAdmin
           .from('conversations')
           .insert({
@@ -104,14 +117,15 @@ export async function POST(req: NextRequest) {
         if (convError) throw convError
         convId = newConv?.id
 
-        await supabaseAdmin.from('participants').insert([
+        const { error: partError } = await supabaseAdmin.from('participants').insert([
           { conversation_id: convId, user_id: senderId },
           { conversation_id: convId, user_id: receiverId }
         ])
+
+        if (partError) throw partError
       }
     }
 
-    // ✅ CORRECTION: Utiliser { data, error } - SANS jointure sender
     const { data: message, error: msgError } = await supabaseAdmin
       .from('messages')
       .insert({
@@ -119,7 +133,7 @@ export async function POST(req: NextRequest) {
         sender_id: senderId,
         content
       })
-      .select()  // ✅ Supprimer la jointure sender qui cause l'erreur
+      .select()
       .single()
 
     if (msgError) throw msgError

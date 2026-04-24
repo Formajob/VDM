@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Package, PlayCircle, CheckCircle2, AlertTriangle, Eye, Edit, AlertCircle, Search, Clock, Calendar, ArrowUpDown, ArrowUp, ArrowDown, Circle } from 'lucide-react'
+import { Package, PlayCircle, CheckCircle2, AlertTriangle, Eye, Edit, AlertCircle, Search, Clock, Calendar, ArrowUpDown, ArrowUp, ArrowDown, Circle, Users, UserCheck } from 'lucide-react'
 import { toast } from 'sonner'
 import { useDemoMode, DemoUser } from '@/hooks/useDemoMode'
 
@@ -41,6 +41,7 @@ interface Project {
 interface Redacteur {
   id: string
   name: string
+  email: string
   jobRole: string
 }
 
@@ -160,7 +161,7 @@ function CompleteModal({ project, onClose, onComplete }: any) {
   )
 }
 
-// ✅ CORRECTION 3: Modal Modifier (Admin seulement)
+// Modal Modifier (Admin seulement)
 function EditModal({ project, onClose, onEdit, isAdmin }: any) {
   const [status, setStatus] = useState(project?.status || 'PAS_ENCORE')
   const [writtenAt, setWrittenAt] = useState(project?.writtenAt?.split('T')[0] || '')
@@ -229,6 +230,79 @@ function EditModal({ project, onClose, onEdit, isAdmin }: any) {
   )
 }
 
+// ✅ NOUVEAU: Modal Réassigner Rédacteur
+function ReassignModal({ project, redacteurs, onClose, onReassign }: {
+  project: Project | null
+  redacteurs: Redacteur[]
+  onClose: () => void
+  onReassign: (projectId: string, newRedacteurId: string) => Promise<void>
+}) {
+  const [selectedRedacteur, setSelectedRedacteur] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (project) setSelectedRedacteur(project.redacteurId || '')
+  }, [project])
+
+  const handleReassign = async () => {
+    if (!selectedRedacteur || !project?.id) {
+      toast.error('Veuillez sélectionner un rédacteur')
+      return
+    }
+    if (selectedRedacteur === project.redacteurId) {
+      toast.info('Ce rédacteur est déjà assigné')
+      onClose()
+      return
+    }
+    setSaving(true)
+    await onReassign(project.id, selectedRedacteur)
+    setSaving(false)
+    onClose()
+  }
+
+  if (!project) return null
+  const currentRedacteur = redacteurs.find(r => r.id === project.redacteurId)
+
+  return (
+    <Dialog open={!!project} onOpenChange={onClose}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Users className="w-5 h-5 text-indigo-600" />
+            Changer de rédacteur
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="bg-slate-50 rounded-lg p-3 space-y-2 text-sm">
+            <div className="flex justify-between"><span className="text-slate-500">Projet:</span><span className="font-medium">{project.name}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Rédacteur actuel:</span><span className="font-medium text-indigo-600">{currentRedacteur?.name || 'Non assigné'}</span></div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Nouveau rédacteur *</Label>
+            <Select value={selectedRedacteur} onValueChange={setSelectedRedacteur}>
+              <SelectTrigger><SelectValue placeholder="Sélectionner" /></SelectTrigger>
+              <SelectContent>
+                {redacteurs.map(r => (
+                  <SelectItem key={r.id} value={r.id}>
+                    {r.name} {r.id === project.redacteurId ? '(actuel)' : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={onClose}>Annuler</Button>
+          <Button size="sm" onClick={handleReassign} disabled={saving} className="bg-indigo-600 hover:bg-indigo-700 text-white gap-1.5">
+            <UserCheck className="w-4 h-4" />
+            {saving ? '...' : 'Réassigner'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // Header Triable
 function SortableHeader({ label, field, currentSort, onSort }: any) {
   const isActive = currentSort.field === field
@@ -262,7 +336,8 @@ export default function RedactionPage() {
   const [viewingProject, setViewingProject] = useState<Project | null>(null)
   const [startingProject, setStartingProject] = useState<Project | null>(null)
   const [completingProject, setCompletingProject] = useState<Project | null>(null)
-  const [editingProject, setEditingProject] = useState<Project | null>(null)  // ✅ CORRECTION 3
+  const [editingProject, setEditingProject] = useState<Project | null>(null)
+  const [reassigningProject, setReassigningProject] = useState<Project | null>(null)  // ✅ NOUVEAU
 
   const user: DemoUser | null = (session?.user as DemoUser) || demoUser || null
   const isAdmin = user?.role === 'ADMIN'
@@ -400,7 +475,7 @@ export default function RedactionPage() {
     } catch { toast.error('Erreur connexion') }
   }
 
-  // ✅ CORRECTION 3: Handler pour modifier un projet (Admin)
+  // Handler pour modifier un projet (Admin)
   const handleEdit = async (projectId: string, data: any) => {
     try {
       const res = await fetch('/api/projects/redaction', {
@@ -431,6 +506,37 @@ export default function RedactionPage() {
     } catch { toast.error('Erreur connexion') }
   }
 
+  // ✅ NOUVEAU: Handler pour réassigner un projet à un autre rédacteur
+  const handleReassign = async (projectId: string, newRedacteurId: string) => {
+  try {
+    const res = await fetch('/api/projects/redaction', {  // ✅ Bon endpoint
+      method: 'POST',  // ✅ Bonne méthode
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        projectId, 
+        action: 'reassign',  // ✅ Action spécifique
+        redacteurId: newRedacteurId 
+      })
+    })
+    if (!res.ok) {
+      const err = await res.json()
+      throw new Error(err.error || 'Erreur')
+    }
+    toast.success('Projet réassigné')
+    // Recharger les projets
+    setLoading(true)
+    const params = new URLSearchParams()
+    if (statusFilter !== 'ALL') params.set('status', statusFilter.toLowerCase())
+    const res2 = await fetch(`/api/projects/redaction?${params.toString()}`)
+    const data = await res2.json()
+    setProjects(data.projects || [])
+    setStats(data.stats || { total: 0, pas_encore: 0, en_cours: 0, fait: 0, en_retard: 0 })
+    setLoading(false)
+  } catch (e: any) {
+    toast.error(`Erreur: ${e.message}`)
+  }
+}
+
   const handleSort = (field: SortField) => {
     setSortField(field)
     setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')
@@ -457,7 +563,7 @@ export default function RedactionPage() {
       return sortOrder === 'asc' ? cmp : -cmp
     })
 
-  // ✅ CORRECTION 1: Stats calculées sur filteredProjects (pas projects)
+  // Stats calculées sur filteredProjects
   const filteredStats = {
     total: filteredProjects.length,
     pas_encore: filteredProjects.filter((p: any) => p.status === 'PAS_ENCORE').length,
@@ -509,7 +615,7 @@ export default function RedactionPage() {
           <p className="text-sm text-muted-foreground">{user?.name}</p>
         </div>
 
-        {/* ✅ CORRECTION 1: Stats avec filteredStats (se mettent à jour avec les filtres) */}
+        {/* Stats */}
         <div className="grid sm:grid-cols-2 lg:grid-cols-6 gap-4">
           {[
             { label: 'Total', value: filteredStats.total },
@@ -584,7 +690,6 @@ export default function RedactionPage() {
                     <th className="text-center py-2 px-3 text-xs font-medium text-slate-500">Type</th>
                     <SortableHeader label="Durée" field="durationMin" currentSort={{ field: sortField, order: sortOrder }} onSort={handleSort} />
                     <th className="text-left py-2 px-3 text-xs font-medium text-slate-500 hidden md:table-cell">Rédacteur</th>
-                    {/* ✅ CORRECTION 2: Colonne Date de rédaction */}
                     <th className="text-left py-2 px-3 text-xs font-medium text-slate-500 hidden lg:table-cell">Date rédaction</th>
                     <th className="text-left py-2 px-3 text-xs font-medium text-slate-500">Statut</th>
                     <th className="py-2 px-3"></th>
@@ -599,8 +704,23 @@ export default function RedactionPage() {
                       <td className="py-2.5 px-3 whitespace-nowrap">{displayDateLocal(p.deadline)}</td>
                       <td className="py-2.5 px-3 whitespace-nowrap text-center"><Badge variant="outline" className="text-xs">{getProjectTypeLabel(p.projectType)}</Badge></td>
                       <td className="py-2.5 px-3 whitespace-nowrap text-center">{p.durationMin ? `${Math.round(p.durationMin)} min` : '-'}</td>
-                      <td className="py-2.5 px-3 whitespace-nowrap hidden md:table-cell">{p.User?.name || '-'}</td>
-                      {/* ✅ CORRECTION 2: Affichage Date de rédaction */}
+                      
+                      {/* ✅ CORRECTION: Colonne Rédacteur avec bouton réassigner (Admin seulement) */}
+                      <td className="py-2.5 px-3 whitespace-nowrap hidden md:table-cell">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm">{p.User?.name || '-'}</span>
+                          {isAdmin && (
+                            <button
+                              onClick={() => setReassigningProject(p)}
+                              className="p-1 hover:bg-indigo-50 rounded transition-colors"
+                              title="Changer de rédacteur"
+                            >
+                              <Edit className="w-3.5 h-3.5 text-indigo-600" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                      
                       <td className="py-2.5 px-3 whitespace-nowrap hidden lg:table-cell">{displayDateLocal(p.writtenAt)}</td>
                       <td className="py-2.5 px-3"><StatusBadge status={p.status} /></td>
                       <td className="py-2.5 px-3 text-right">
@@ -608,7 +728,6 @@ export default function RedactionPage() {
                           {p.status !== 'FAIT' && <Button size="sm" variant="outline" className="h-7" onClick={() => handleAction(p, 'commencer')}><PlayCircle className="w-3.5 h-3.5" /></Button>}
                           {p.status !== 'FAIT' && <Button size="sm" variant="outline" className="h-7" onClick={() => handleAction(p, 'fait')}><CheckCircle2 className="w-3.5 h-3.5" /></Button>}
                           <Button variant="ghost" size="sm" className="h-7" onClick={() => setViewingProject(p)}><Eye className="w-3.5 h-3.5" /></Button>
-                          {/* ✅ CORRECTION 3: Bouton Modifier (Admin seulement) */}
                           {isAdmin && (
                             <Button variant="ghost" size="sm" className="h-7 text-amber-600 hover:text-amber-700" onClick={() => setEditingProject(p)}>
                               <Edit className="w-3.5 h-3.5" />
@@ -642,7 +761,16 @@ export default function RedactionPage() {
           </Dialog>
         )}
 
-        {/* ✅ CORRECTION 3: Modal Modifier */}
+        {/* ✅ NOUVEAU: Modal Réassigner */}
+        {reassigningProject && (
+          <ReassignModal
+            project={reassigningProject}
+            redacteurs={redacteurs}
+            onClose={() => setReassigningProject(null)}
+            onReassign={handleReassign}
+          />
+        )}
+
         {editingProject && (
           <EditModal 
             project={editingProject} 

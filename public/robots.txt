@@ -20,7 +20,7 @@ Allow: /
  python convert_excel.py 
 cd C:\Users\User18\Desktop\VDM
 git add .
-git commit -m "feat: chat widget 1.0  "
+git commit -m "feat: chat widget 2.0 + modif ssignation redacteur  "
 git push origin main
 
  */}

@@ -17,34 +17,17 @@ export async function GET(
     
     const { conversationId } = await params
     
-    if (!conversationId) {
+    if (!conversationId || conversationId === 'undefined') {
       return NextResponse.json({ error: 'Conversation ID requis' }, { status: 400 })
-    }
-
-    // ✅ CORRECTION: Utiliser { data, error }
-    const { data: participant, error: checkError } = await supabaseAdmin
-      .from('participants')
-      .select('id')
-      .eq('conversation_id', conversationId)
-      .eq('user_id', userId)
-      .single()
-
-    if (checkError || !participant) {
-      return NextResponse.json({ error: 'Non autorisé' }, { status: 403 })
     }
 
     const thirtyDaysAgo = new Date()
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
 
-    // ✅ CORRECTION: Utiliser { data, error } - SANS jointure sender
+    // ✅ SYNTAXE EXPLICITE: { data: messages, error }
     const { data: messages, error } = await supabaseAdmin
       .from('messages')
-      .select(`
-        id,
-        content,
-        sender_id,
-        created_at
-      `)
+      .select('id, content, sender_id, created_at')
       .eq('conversation_id', conversationId)
       .gte('created_at', thirtyDaysAgo.toISOString())
       .order('created_at', { ascending: true })
@@ -69,7 +52,7 @@ export async function PATCH(
 
     const { conversationId } = await params
     
-    if (!conversationId) {
+    if (!conversationId || conversationId === 'undefined') {
       return NextResponse.json({ error: 'Conversation ID requis' }, { status: 400 })
     }
 
