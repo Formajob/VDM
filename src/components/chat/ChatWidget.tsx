@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { useSession } from 'next-auth/react'
 import { MessageSquare, X, Send, Users, Search, User, ArrowLeft, Volume2, VolumeX } from 'lucide-react'
 import { Input } from '@/components/ui/input'
@@ -16,11 +16,11 @@ interface Member {
 }
 
 interface Message {
- id: string
+  id: string
   content: string
   sender_id: string
   created_at: string
-  conversation_id: string  // ← ← ← AJOUTER CETTE LIGNE
+  conversation_id: string
   sender?: {
     id: string
     name?: string
@@ -36,8 +36,29 @@ interface Conversation {
   hasUnread?: boolean
 }
 
-// ✅ SON DE NOTIFICATION (Base64 - son court et discret)
-const NOTIFICATION_SOUND = 'data:audio/mp3;base64,//NExAAAAania...' // Version courte ci-dessous
+// ✅ CORRECTION 1: Stocker les conversations lues dans localStorage
+const READ_CONVERSATIONS_KEY = 'chat_read_conversations'
+
+function getReadConversations(): Set<string> {
+  if (typeof window === 'undefined') return new Set()
+  try {
+    const stored = localStorage.getItem(READ_CONVERSATIONS_KEY)
+    return stored ? new Set(JSON.parse(stored)) : new Set()
+  } catch {
+    return new Set()
+  }
+}
+
+function saveReadConversation(conversationId: string): void {
+  if (typeof window === 'undefined') return
+  try {
+    const read = getReadConversations()
+    read.add(conversationId)
+    localStorage.setItem(READ_CONVERSATIONS_KEY, JSON.stringify(Array.from(read)))
+  } catch (e) {
+    console.error('Erreur sauvegarde lecture:', e)
+  }
+}
 
 export default function ChatWidget() {
   const {  data:session } = useSession()
@@ -53,20 +74,59 @@ export default function ChatWidget() {
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [unreadCount, setUnreadCount] = useState(0)
-  const [loading, setLoading] = useState(false)
-  const [soundEnabled, setSoundEnabled] = useState(true) // ✅ Gestion du son
+  const [soundEnabled, setSoundEnabled] = useState(true)
+  const [initialized, setInitialized] = useState(false)
+  const [audioReady, setAudioReady] = useState(false)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  const readConversationsRef = useRef<Set<string>>(new Set())
   const user = session?.user as any
+  const audioInitializedRef = useRef(false)
 
-  // ✅ Initialiser le son au montage
+  // ✅ CORRECTION 2: Sonnerie PLUS FORTES et PLUS PERTINENTE (notification iPhone)
   useEffect(() => {
-    audioRef.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3')
-    audioRef.current.volume = 0.5
-    audioRef.current.preload = 'auto'
+    if (audioInitializedRef.current) return
     
+    const initAudio = () => {
+      if (!audioRef.current) {
+        // ✅ CORRECTION 3: Sonnerie notification plus forte (style iPhone/SMS)
+        audioRef.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3')
+        audioRef.current.volume = 1.0 // ✅ Volume MAX (était 0.5)
+        audioRef.current.preload = 'auto'
+        audioRef.current.load()
+        
+        audioRef.current.addEventListener('canplaythrough', () => {
+          setAudioReady(true)
+          console.log('🔔 Son prêt à jouer (volume: 100%)')
+        }, { once: true })
+        
+        audioRef.current.addEventListener('error', (e) => {
+          console.error('❌ Erreur chargement son:', e)
+          setAudioReady(false)
+        })
+      }
+      audioInitializedRef.current = true
+    }
+
+    const handleFirstInteraction = () => {
+      initAudio()
+      document.removeEventListener('click', handleFirstInteraction)
+      document.removeEventListener('touchstart', handleFirstInteraction)
+      document.removeEventListener('keydown', handleFirstInteraction)
+    }
+
+    document.addEventListener('click', handleFirstInteraction)
+    document.addEventListener('touchstart', handleFirstInteraction)
+    document.addEventListener('keydown', handleFirstInteraction)
+
+    const timeout = setTimeout(initAudio, 1000)
+
     return () => {
+      document.removeEventListener('click', handleFirstInteraction)
+      document.removeEventListener('touchstart', handleFirstInteraction)
+      document.removeEventListener('keydown', handleFirstInteraction)
+      clearTimeout(timeout)
       if (audioRef.current) {
         audioRef.current.pause()
         audioRef.current = null
@@ -74,144 +134,123 @@ export default function ChatWidget() {
     }
   }, [])
 
-  // ✅ Jouer le son de notification
-  const playNotificationSound = () => {
-    if (soundEnabled && audioRef.current) {
-      audioRef.current.currentTime = 0
-      audioRef.current.play().catch(e => console.log('🔕 Son bloqué par le navigateur:', e))
-    }
-  }
-
-  // Charger les membres avec statut en ligne
   useEffect(() => {
-    if (!isOpen || !user) return
+    readConversationsRef.current = getReadConversations()
+    setInitialized(true)
+  }, [])
 
-    const fetchMembersAndStatus = async () => {
-      try {
-        const usersRes = await fetch('/api/users?includeInactive=false')
-        const usersList = await usersRes.json()
-        
-        const today = new Date().toISOString().split('T')[0]
-        const attendanceRes = await fetch(`/api/attendance?all=true&date=${today}`)
-        const attendanceRecords = await attendanceRes.json()
-        
-        const onlineUserIds = new Set(
-          attendanceRecords
-            .filter((r: any) => r && r.userId && !r.endedAt && r.status !== 'ABSENT')
-            .map((r: any) => r.userId)
-        )
-
-        const membersWithStatus = usersList
-          .filter((u: any) => u && u.id !== user.id)
-          .map((u: any) => ({
-            ...u,
-            isOnline: onlineUserIds.has(u.id)
-          }))
-
-        setMembers(membersWithStatus)
-      } catch (e) {
-        console.error('Erreur chargement membres:', e)
-        const usersRes = await fetch('/api/users?includeInactive=false')
-        const usersList = await usersRes.json()
-        setMembers(usersList.filter((u: any) => u.id !== user.id).map((u: any) => ({ ...u, isOnline: false })))
-      }
+  // ✅ CORRECTION 4: Fonction playSound avec logs détaillés
+  const playNotificationSound = useCallback(() => {
+    console.log('🔔 [PlaySound] Called - soundEnabled:', soundEnabled, 'audioReady:', audioReady, 'audioRef:', !!audioRef.current)
+    
+    if (!soundEnabled) {
+      console.log('🔕 [PlaySound] Son désactivé')
+      return
+    }
+    
+    if (!audioRef.current) {
+      console.log('⚠️ [PlaySound] Audio non initialisé')
+      return
+    }
+    
+    if (!audioReady) {
+      console.log('⚠️ [PlaySound] Audio pas encore prêt')
+      return
     }
 
-    fetchMembersAndStatus()
-  }, [isOpen, user])
+    audioRef.current.currentTime = 0
+    audioRef.current.play()
+      .then(() => console.log('✅ [PlaySound] Son joué avec succès'))
+      .catch(err => {
+        console.error('❌ [PlaySound] Erreur playback:', err.message)
+        setTimeout(() => {
+          audioRef.current?.play().catch(() => {})
+        }, 100)
+      })
+  }, [soundEnabled, audioReady])
 
-  // Charger les conversations et calculer les non-lus
-  useEffect(() => {
-    if (!isOpen || !user) return
+  const loadMembers = useCallback(async () => {
+    if (!user) return
+    try {
+      const usersRes = await fetch('/api/users?includeInactive=false')
+      const usersList = await usersRes.json()
+      
+      const today = new Date().toISOString().split('T')[0]
+      const attendanceRes = await fetch(`/api/attendance?all=true&date=${today}`)
+      const attendanceRecords = await attendanceRes.json()
+      
+      const onlineUserIds = new Set(
+        attendanceRecords
+          .filter((r: any) => r && r.userId && !r.endedAt && r.status !== 'ABSENT')
+          .map((r: any) => r.userId)
+      )
 
-    const fetchConversations = async () => {
-      setLoading(true)
-      try {
-        const res = await fetch('/api/messages')
-        const data = await res.json()
+      const membersWithStatus = usersList
+        .filter((u: any) => u && u.id !== user.id)
+        .map((u: any) => ({ ...u, isOnline: onlineUserIds.has(u.id) }))
+
+      setMembers(membersWithStatus)
+    } catch (e) {
+      console.error('Erreur chargement membres:', e)
+    }
+  }, [user])
+
+  // ✅ CORRECTION 5: Charger les conversations avec hasUnread CORRECT
+  const loadConversations = useCallback(async () => {
+    if (!user || !initialized) return
+    
+    try {
+      const res = await fetch('/api/messages')
+      const data = await res.json()
+      
+      const readConvs = readConversationsRef.current
+      
+      const conversationsWithUnread = (data.conversations || []).map((c: any) => {
+        const isAlreadyRead = readConvs.has(c.id)
+        const isFromOther = c.lastMessage?.sender_id !== user.id
         
-        const conversationsWithUnread = (data.conversations || []).map((c: any) => ({
+        console.log('📦 [LoadConversations] Conversation:', c.id, {
+          isAlreadyRead,
+          isFromOther,
+          hasUnread: !isAlreadyRead && isFromOther
+        })
+        
+        return {
           ...c,
-          hasUnread: c.lastMessage?.sender_id !== user.id
-        }))
-        
-        setConversations(conversationsWithUnread)
-        
-        const unread = conversationsWithUnread.filter((c: any) => c.hasUnread).length
-        setUnreadCount(unread)
-        
-        console.log('📦 Conversations loaded:', conversationsWithUnread.length, 'Unread:', unread)
-      } catch (e) {
-        console.error('Erreur chargement conversations:', e)
-      } finally {
-        setLoading(false)
-      }
+          // ✅ hasUnread = PAS lu dans localStorage ET message d'un autre
+          hasUnread: !isAlreadyRead && isFromOther
+        }
+      })
+      
+      setConversations(conversationsWithUnread)
+      
+      const unread = conversationsWithUnread.filter((c: any) => c.hasUnread).length
+      console.log('📊 [LoadConversations] Total unread:', unread)
+      setUnreadCount(unread)
+    } catch (e) {
+      console.error('Erreur chargement conversations:', e)
     }
+  }, [user, initialized])
 
-    fetchConversations()
-  }, [isOpen, user])
+  useEffect(() => {
+    if (isOpen && initialized) {
+      loadConversations()
+      if (members.length === 0) loadMembers()
+    }
+  }, [isOpen, initialized, loadConversations, loadMembers, members.length])
 
-  // Scroll vers le bas
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // ✅ Realtime messages AVEC SON
+  // ✅ CORRECTION 6: Realtime avec hasUnread CORRECT pour NOUVEAUX messages
   useEffect(() => {
-    if (!conversationId) return
+    if (!user || !initialized) return
+
+    console.log('🔔 [Realtime] Subscription activée pour:', user.id)
 
     const channel = supabase
-      .channel(`messages:${conversationId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'messages',
-          filter: `conversation_id=eq.${conversationId}`
-        },
-        (payload) => {
-          const newMsg = payload.new as Message
-          
-          // ✅ Vérifier si le message vient d'un autre utilisateur
-          const isFromOther = newMsg.sender_id !== user?.id
-          
-          setMessages((prev) => {
-            const exists = prev.some(m => m.id === newMsg.id)
-            if (exists) return prev
-            return [...prev, newMsg]
-          })
-          
-          setConversations(prev => {
-            const updated = prev.map(c => 
-              c.id === conversationId 
-                ? { ...c, lastMessage: newMsg, hasUnread: isFromOther }
-                : c
-            )
-            const newUnreadCount = updated.filter(c => c.hasUnread).length
-            setUnreadCount(newUnreadCount)
-            return updated
-          })
-          
-          // ✅ Jouer le son si le message vient d'un autre utilisateur
-          if (isFromOther) {
-            playNotificationSound()
-          }
-        }
-      )
-      .subscribe()
-
-    return () => {
-      supabase.removeChannel(channel)
-    }
-  }, [conversationId, supabase, user?.id, soundEnabled])
-
-  // ✅ Realtime pour TOUS les messages (même si pas dans la conversation ouverte)
-  useEffect(() => {
-    if (!isOpen) return
-
-    const globalChannel = supabase
-      .channel('messages:global')
+      .channel('messages:all')
       .on(
         'postgres_changes',
         {
@@ -219,45 +258,89 @@ export default function ChatWidget() {
           schema: 'public',
           table: 'messages'
         },
-        async (payload) => {
+        (payload) => {
           const newMsg = payload.new as Message
           const isFromOther = newMsg.sender_id !== user?.id
           
-          // ✅ Rafraîchir les conversations
-          const convRes = await fetch('/api/messages')
-          const convData = await convRes.json()
-          const updatedConversations = (convData.conversations || []).map((c: any) => ({
-            ...c,
-            hasUnread: c.lastMessage?.sender_id !== user.id
-          }))
-          setConversations(updatedConversations)
+          console.log('📨 [Realtime] Nouveau message:', {
+            id: newMsg.id,
+            conversation_id: newMsg.conversation_id,
+            sender_id: newMsg.sender_id,
+            isFromOther,
+            audioReady,
+            soundEnabled
+          })
           
-          const newUnreadCount = updatedConversations.filter((c: any) => c.hasUnread).length
-          setUnreadCount(newUnreadCount)
+          // ✅ CORRECTION 7: Mettre à jour les conversations avec hasUnread CORRECT
+          setConversations(prev => {
+            const existingConvIndex = prev.findIndex(c => c.id === newMsg.conversation_id)
+            
+            if (existingConvIndex >= 0) {
+              const updated = [...prev]
+              const isAlreadyRead = readConversationsRef.current.has(newMsg.conversation_id)
+              
+              updated[existingConvIndex] = {
+                ...updated[existingConvIndex],
+                lastMessage: newMsg,
+                updated_at: newMsg.created_at,
+                // ✅ hasUnread = PAS dans localStorage ET message d'un autre
+                hasUnread: !isAlreadyRead && isFromOther
+              }
+              
+              const unread = updated.filter(c => c.hasUnread).length
+              console.log('📊 [Realtime] Updated unread count:', unread)
+              setUnreadCount(unread)
+              
+              return updated
+            } else {
+              // Nouvelle conversation - recharger
+              loadConversations()
+              return prev
+            }
+          })
           
-          // ✅ Jouer le son si message reçu et widget ouvert mais pas dans cette conversation
-          if (isFromOther && conversationId !== newMsg.conversation_id) {
+          // ✅ Jouer le son pour TOUS les messages reçus
+          if (isFromOther) {
+            console.log('🔔 [Realtime] Message reçu d\'un autre utilisateur - Playing sound...')
             playNotificationSound()
+            
+            if (!isOpen && 'Notification' in window && Notification.permission === 'granted') {
+              new Notification('Nouveau message', {
+                body: `${newMsg.sender?.name || 'Quelqu\'un'}: ${newMsg.content.substring(0, 50)}...`,
+                icon: '/favicon.ico'
+              })
+            }
+          } else {
+            console.log('🔕 [Realtime] Message envoyé par moi - Pas de son')
           }
         }
       )
-      .subscribe()
+      .subscribe((status) => {
+        console.log('🔗 [Realtime] Status:', status)
+      })
 
     return () => {
-      supabase.removeChannel(globalChannel)
+      console.log('🔌 [Realtime] Subscription fermée')
+      supabase.removeChannel(channel)
     }
-  }, [isOpen, conversationId, user?.id, soundEnabled])
+  }, [user, initialized, isOpen, playNotificationSound, loadConversations, audioReady])
 
-  // Ouvrir conversation avec un membre
-  const openConversation = async (member: Member) => {
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission()
+    }
+  }, [])
+
+  const openConversation = useCallback(async (member: Member) => {
     try {
-      const existingConv = conversations.find(
-        (c) => c.otherUser?.id === member.id
-      )
+      const existingConv = conversations.find(c => c.otherUser?.id === member.id)
 
       if (existingConv) {
         setConversationId(existingConv.id)
-        await fetchMessages(existingConv.id)
+        
+        // ✅ MARQUER COMME LU
+        saveReadConversation(existingConv.id)
+        readConversationsRef.current.add(existingConv.id)
         
         setConversations(prev => {
           const updated = prev.map(c => 
@@ -267,6 +350,8 @@ export default function ChatWidget() {
           setUnreadCount(newUnreadCount)
           return updated
         })
+        
+        await fetchMessages(existingConv.id)
       } else {
         setConversationId(null)
         setMessages([])
@@ -277,10 +362,9 @@ export default function ChatWidget() {
     } catch (e) {
       console.error('Erreur ouverture conversation:', e)
     }
-  }
+  }, [conversations])
 
-  // Charger les messages
-  const fetchMessages = async (convId: string) => {
+  const fetchMessages = useCallback(async (convId: string) => {
     try {
       const res = await fetch(`/api/messages/${convId}`)
       const data = await res.json()
@@ -308,10 +392,9 @@ export default function ChatWidget() {
     } catch (e) {
       console.error('Erreur chargement messages:', e)
     }
-  }
+  }, [])
 
-  // Envoyer message
-  const sendMessage = async () => {
+  const sendMessage = useCallback(async () => {
     if (!newMessage.trim() || !selectedMember) return
 
     try {
@@ -329,62 +412,65 @@ export default function ChatWidget() {
       
       if (!conversationId && data.conversationId) {
         setConversationId(data.conversationId)
+        saveReadConversation(data.conversationId)
+        readConversationsRef.current.add(data.conversationId)
       }
 
       setNewMessage('')
       await fetchMessages(conversationId || data.conversationId)
       
-      const convRes = await fetch('/api/messages')
-      const convData = await convRes.json()
-      const updatedConversations = (convData.conversations || []).map((c: any) => ({
-        ...c,
-        hasUnread: c.lastMessage?.sender_id !== user.id
-      }))
-      setConversations(updatedConversations)
+      setConversations(prev => {
+        const updated = prev.map(c => 
+          c.id === (conversationId || data.conversationId)
+            ? { ...c, hasUnread: false }
+            : c
+        )
+        return updated
+      })
       
-      const newUnreadCount = updatedConversations.filter((c: any) => c.hasUnread).length
-      setUnreadCount(newUnreadCount)
+      if (!conversationId && data.conversationId) {
+        await loadConversations()
+      }
     } catch (e) {
       console.error('Erreur envoi message:', e)
     }
-  }
+  }, [newMessage, selectedMember, conversationId, fetchMessages, loadConversations])
 
-  const backToConversations = () => {
+  const backToConversations = useCallback(() => {
     setSelectedMember(null)
     setConversationId(null)
     setMessages([])
     setView('conversations')
-  }
+  }, [])
 
-  const goToMembers = () => {
+  const goToMembers = useCallback(() => {
     setSelectedMember(null)
     setConversationId(null)
     setMessages([])
     setView('members')
-  }
+  }, [])
 
-  const toggleWidget = () => {
-    if (isOpen) {
-      setIsOpen(false)
-    } else {
-      setIsOpen(true)
-      setView('conversations')
-    }
-  }
+  const toggleWidget = useCallback(() => {
+    setIsOpen(prev => !prev)
+    if (!isOpen) setView('conversations')
+  }, [isOpen])
 
-  // ✅ Basculer le son
-  const toggleSound = (e: React.MouseEvent) => {
+  const toggleSound = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
-    setSoundEnabled(!soundEnabled)
-  }
+    setSoundEnabled(prev => !prev)
+  }, [])
 
-  const filteredMembers = members.filter(m =>
-    m.name?.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredMembers = useMemo(() => 
+    members.filter(m => m.name?.toLowerCase().includes(searchQuery.toLowerCase())),
+    [members, searchQuery]
   )
 
-  const filteredConversations = conversations.filter(c =>
-    c.otherUser?.name?.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredConversations = useMemo(() => 
+    conversations.filter(c => c.otherUser?.name?.toLowerCase().includes(searchQuery.toLowerCase())),
+    [conversations, searchQuery]
   )
+
+  if (!initialized) return null
 
   return (
     <>
@@ -452,7 +538,6 @@ export default function ChatWidget() {
               )}
             </div>
             <div className="flex items-center gap-1">
-              {/* ✅ Bouton Son ON/OFF */}
               <button 
                 onClick={toggleSound} 
                 className="hover:bg-indigo-500 rounded p-1 transition-colors"
@@ -473,7 +558,6 @@ export default function ChatWidget() {
           {/* Contenu */}
           <div className="flex-1 overflow-auto">
             {view === 'members' ? (
-              /* 📋 Liste des membres */
               <div>
                 <div className="p-3 border-b border-slate-100">
                   <div className="relative">
@@ -521,7 +605,6 @@ export default function ChatWidget() {
                 </div>
               </div>
             ) : view === 'chat' && selectedMember ? (
-              /* 💬 Conversation */
               <div className="p-4 space-y-3">
                 {messages.map((msg, index) => {
                   const isMe = msg.sender_id === user?.id
@@ -551,7 +634,6 @@ export default function ChatWidget() {
                 )}
               </div>
             ) : (
-              /* 📋 Liste des conversations */
               <div>
                 <div className="p-3 border-b border-slate-100 flex items-center justify-between">
                   <div className="relative flex-1">
@@ -579,14 +661,18 @@ export default function ChatWidget() {
                         <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center">
                           <User className="w-5 h-5 text-indigo-600" />
                         </div>
+                        {/* ✅ CORRECTION 8: Badge rouge si hasUnread = true */}
                         {conv.hasUnread && (
-                          <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full border-2 border-white" />
+                          <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full border-2 border-white animate-pulse" />
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between">
+                          {/* ✅ CORRECTION 9: Texte en GRAS si hasUnread = true */}
                           <p className={`font-medium text-sm truncate ${
-                            conv.hasUnread ? 'text-indigo-700 font-semibold' : 'text-slate-800'
+                            conv.hasUnread 
+                              ? 'text-indigo-700 font-bold' 
+                              : 'text-slate-800 font-normal'
                           }`}>
                             {conv.otherUser?.name || 'Inconnu'}
                           </p>
@@ -598,9 +684,12 @@ export default function ChatWidget() {
                             </span>
                           )}
                         </div>
+                        {/* ✅ CORRECTION 10: Texte du message en GRAS si hasUnread = true */}
                         {conv.lastMessage && (
                           <p className={`text-xs truncate ${
-                            conv.hasUnread ? 'text-indigo-600 font-semibold' : 'text-slate-500'
+                            conv.hasUnread 
+                              ? 'text-indigo-600 font-bold' 
+                              : 'text-slate-500 font-normal'
                           }`}>
                             {conv.lastMessage.sender_id === user?.id && 'Vous: '}
                             {conv.lastMessage.content}
