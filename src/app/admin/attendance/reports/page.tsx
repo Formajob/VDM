@@ -7,12 +7,29 @@ import DashboardLayout from '@/components/layout/DashboardLayout'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
 import { 
   Download, Calendar, Users, TrendingUp, FileText, AlertCircle,
-  ChevronLeft, ChevronRight, Filter, BarChart3
+  ChevronLeft, ChevronRight, Filter, BarChart3, Edit2, X
 } from 'lucide-react'
 import { useDemoMode, DemoUser } from '@/hooks/useDemoMode'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 interface AttendanceRecord {
   id: string
@@ -33,6 +50,7 @@ interface EmployeeData {
   pr: string
   project: string
   dailyStatus: Map<string, string>
+  dailyDuration: Map<string, number>
 }
 
 interface EmployeeSummary {
@@ -45,6 +63,23 @@ interface EmployeeSummary {
   totalOff: number
   totalDays: number
 }
+
+interface EditCellData {
+  employeeId: string
+  date: string
+  currentStatus: string
+  currentDuration: number
+}
+
+const STATUS_OPTIONS = [
+  { value: 'Présent', label: 'Présent', color: 'bg-emerald-100 text-emerald-700' },
+  { value: 'Absence', label: 'Absence', color: 'bg-red-100 text-red-700' },
+  { value: 'VAC', label: 'Congé', color: 'bg-yellow-100 text-yellow-700' },
+  { value: 'OFF', label: 'OFF', color: 'bg-orange-100 text-orange-700' },
+  { value: 'Retard', label: 'Retard', color: 'bg-amber-100 text-amber-700' },
+  { value: 'Départ anticipé', label: 'Départ anticipé', color: 'bg-purple-100 text-purple-700' },
+  { value: 'Télétravail', label: 'Télétravail', color: 'bg-blue-100 text-blue-700' },
+]
 
 function formatDateKey(date: Date): string {
   return [
@@ -99,6 +134,108 @@ function getPayrollPeriod(selectedDate: Date) {
   return { dates, startDate, endDate }
 }
 
+// ✅ COMPOSANT: Formulaire d'édition de cellule
+function EditAttendanceCellDialog({ 
+  open, 
+  onClose, 
+  onSave, 
+  editData, 
+  date 
+}: { 
+  open: boolean
+  onClose: () => void
+  onSave: (status: string, duration: number) => Promise<void>
+  editData: EditCellData | null
+  date: Date | null
+}) {
+  const [status, setStatus] = useState('')
+  const [duration, setDuration] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (editData) {
+      setStatus(editData.currentStatus || 'Présent')
+      setDuration(editData.currentDuration > 0 ? editData.currentDuration.toString() : '8')
+    }
+  }, [editData])
+
+  const handleSave = async () => {
+    if (!status) {
+      toast.error('Veuillez sélectionner un statut')
+      return
+    }
+    
+    const durationNum = parseFloat(duration) || 0
+    setSaving(true)
+    await onSave(status, durationNum)
+    setSaving(false)
+    onClose()
+  }
+
+  if (!editData || !date) return null
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-[425px]">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Edit2 className="w-5 h-5 text-indigo-600" />
+            Modifier la présence
+          </DialogTitle>
+          <DialogDescription>
+            {getDayName(date)} {formatDisplayDate(date)}
+          </DialogDescription>
+        </DialogHeader>
+        
+        <div className="grid gap-4 py-4">
+          <div className="grid gap-2">
+            <Label htmlFor="status">Statut *</Label>
+            <Select value={status} onValueChange={setStatus}>
+              <SelectTrigger>
+                <SelectValue placeholder="Sélectionner un statut" />
+              </SelectTrigger>
+              <SelectContent>
+                {STATUS_OPTIONS.map(opt => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          
+          <div className="grid gap-2">
+            <Label htmlFor="duration">Durée (heures) *</Label>
+            <Input
+              id="duration"
+              type="number"
+              step="0.25"
+              min="0"
+              max="24"
+              value={duration}
+              onChange={(e) => setDuration(e.target.value)}
+              placeholder="Ex: 8.00"
+            />
+            <p className="text-xs text-muted-foreground">
+              Entrez la durée en heures (ex: 8 pour une journée complète)
+            </p>
+          </div>
+        </div>
+        
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            <X className="w-4 h-4 mr-2" />
+            Annuler
+          </Button>
+          <Button onClick={handleSave} disabled={saving}>
+            {saving ? 'Enregistrement...' : 'Enregistrer'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 export default function AdminAttendanceReportsPage() {
   const { data: session, status } = useSession()
   const { isDemo, demoUser } = useDemoMode()
@@ -112,6 +249,11 @@ export default function AdminAttendanceReportsPage() {
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [employeeData, setEmployeeData] = useState<EmployeeData[]>([])
+  
+  // ✅ NOUVEAU: États pour l'édition
+  const [editDialogOpen, setEditDialogOpen] = useState(false)
+  const [currentEditCell, setCurrentEditCell] = useState<EditCellData | null>(null)
+  const [currentEditDate, setCurrentEditDate] = useState<Date | null>(null)
 
   const { dates, startDate, endDate } = useMemo(() => 
     getPayrollPeriod(selectedMonth),
@@ -134,25 +276,15 @@ export default function AdminAttendanceReportsPage() {
         if (!membersRes.ok) throw new Error('Failed to fetch users')
         const users = await membersRes.json()
         
-        // ✅ DEBUG: Voir ce qu'on reçoit de l'API
-        console.log('📊 All users from API:', users.map((u: any) => ({
-          id: u.id,
-          name: u.name,
-          pr: u.pr,
-          jobRole: u.jobRole,
-          role: u.role
-        })))
-        
         const membersOnly = users.filter((u: any) => u.role === 'MEMBER')
         setMembers(membersOnly)
-        
         setSelectedMemberIds(membersOnly.map((m: any) => m.id))
         
- const params = new URLSearchParams({
-  dateFrom: formatDateKey(startDate),
-  dateTo: formatDateKey(endDate),
-  all: 'true',
-})
+        const params = new URLSearchParams({
+          dateFrom: formatDateKey(startDate),
+          dateTo: formatDateKey(endDate),
+          all: 'true',
+        })
         
         const attendanceRes = await fetch(`/api/attendance?${params}`, { credentials: 'include' })
         if (!attendanceRes.ok) throw new Error('Failed to fetch attendance')
@@ -161,51 +293,49 @@ export default function AdminAttendanceReportsPage() {
         const employeeMap = new Map<string, EmployeeData>()
         
         membersOnly.forEach((member: any) => {
-          // ✅ DEBUG: Afficher le PR pour chaque membre
-          console.log(`👤 Creating employee: ${member.name}, pr="${member.pr}", id="${member.id}"`)
-          
           employeeMap.set(member.id, {
             id: member.id,
             name: member.name,
-            pr: member.pr || 'N/A',  // ✅ Utiliser pr de la BDD
+            pr: member.pr || 'N/A',
             project: member.jobRole || 'VD',
             dailyStatus: new Map(),
+            dailyDuration: new Map(),
           })
         })
         
         attendanceData.forEach((record: AttendanceRecord) => {
           const recordDate = new Date(record.startedAt + 'Z')
-const date = [
-  recordDate.getFullYear(),
-  String(recordDate.getMonth() + 1).padStart(2, '0'),
-  String(recordDate.getDate()).padStart(2, '0')
-].join('-')
+          const date = [
+            recordDate.getFullYear(),
+            String(recordDate.getMonth() + 1).padStart(2, '0'),
+            String(recordDate.getDate()).padStart(2, '0')
+          ].join('-')
+          
           const emp = employeeMap.get(record.userId)
           if (!emp) return
           
           let status = 'Présent'
-          if (record.status === 'ABSENT') status = 'Absence'
-          else if (record.status === 'CONGE') status = 'VAC'
-          else if (record.status === 'PAUSE' || record.status === 'LUNCH') return
-          else if (record.isLate && record.lateMinutes && record.lateMinutes < 999) {
+          let duration = record.durationMin ? record.durationMin / 60 : 8
+          
+          if (record.status === 'ABSENT') {
+            status = 'Absence'
+            duration = 0
+          } else if (record.status === 'CONGE') {
+            status = 'VAC'
+            duration = 8
+          } else if (record.status === 'PAUSE' || record.status === 'LUNCH') {
+            return
+          } else if (record.isLate && record.lateMinutes && record.lateMinutes < 999) {
             const hours = Math.floor(record.lateMinutes / 60)
             const mins = record.lateMinutes % 60
-            status = `retard ${hours}h${mins.toString().padStart(2, '0')}`
+            status = `Retard ${hours}h${mins.toString().padStart(2, '0')}`
           }
           
           const currentStatus = emp.dailyStatus.get(date)
           if (!currentStatus || currentStatus === 'Présent') {
             emp.dailyStatus.set(date, status)
+            emp.dailyDuration.set(date, duration)
           }
-        })
-        
-        employeeMap.forEach(emp => {
-          dates.forEach(date => {
-            const dateKey = formatDateKey(date)
-            if (!emp.dailyStatus.has(dateKey)) {
-              // Laisser vide
-            }
-          })
         })
         
         setEmployeeData(Array.from(employeeMap.values()).sort((a, b) => a.name.localeCompare(b.name)))
@@ -220,6 +350,63 @@ const date = [
     
     fetchData()
   }, [startDate, endDate, status, isDemo])
+
+  // ✅ NOUVELLE FONCTION: Ouvrir le dialog d'édition
+  const handleCellClick = (employeeId: string, date: Date, currentStatus: string, currentDuration: number) => {
+    setCurrentEditCell({
+      employeeId,
+      date: formatDateKey(date),
+      currentStatus,
+      currentDuration
+    })
+    setCurrentEditDate(date)
+    setEditDialogOpen(true)
+  }
+
+  // ✅ NOUVELLE FONCTION: Sauvegarder les modifications
+  const handleSaveCell = async (status: string, duration: number) => {
+    if (!currentEditCell) return
+    
+    try {
+      // Mettre à jour l'API
+      const res = await fetch('/api/attendance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: currentEditCell.employeeId,
+          date: currentEditCell.date,
+          status: status === 'Absence' ? 'ABSENT' : 
+                  status === 'VAC' ? 'CONGE' : 
+                  status === 'Présent' ? 'PRESENT' : 'PRESENT',
+          durationMin: duration * 60,
+          note: status
+        }),
+      })
+      
+      if (!res.ok) throw new Error('Failed to update attendance')
+      
+      // Mettre à jour l'état local
+      setEmployeeData(prev => prev.map(emp => {
+        if (emp.id === currentEditCell.employeeId) {
+          const newDailyStatus = new Map(emp.dailyStatus)
+          const newDailyDuration = new Map(emp.dailyDuration)
+          newDailyStatus.set(currentEditCell.date, status)
+          newDailyDuration.set(currentEditCell.date, duration)
+          return {
+            ...emp,
+            dailyStatus: newDailyStatus,
+            dailyDuration: newDailyDuration
+          }
+        }
+        return emp
+      }))
+      
+      toast.success('Présence mise à jour avec succès')
+    } catch (error: any) {
+      console.error('Update error:', error)
+      toast.error('Erreur lors de la mise à jour: ' + error.message)
+    }
+  }
 
   const handlePreviousMonth = () => {
     const newMonth = new Date(selectedMonth)
@@ -268,7 +455,7 @@ const date = [
     acc + Array.from(emp.dailyStatus.values()).filter(s => s === 'VAC').length, 0
   )
   const lateDays = filteredEmployees.reduce((acc, emp) => 
-    acc + Array.from(emp.dailyStatus.values()).filter(s => s.includes('retard')).length, 0
+    acc + Array.from(emp.dailyStatus.values()).filter(s => s.includes('Retard')).length, 0
   )
   const offDays = filteredEmployees.reduce((acc, emp) => 
     acc + Array.from(emp.dailyStatus.values()).filter(s => s === 'OFF').length, 0
@@ -283,7 +470,7 @@ const date = [
         totalPresent: statuses.filter(s => s === 'Présent').length,
         totalAbsent: statuses.filter(s => s === 'Absence').length,
         totalVac: statuses.filter(s => s === 'VAC').length,
-        totalLate: statuses.filter(s => s.includes('retard')).length,
+        totalLate: statuses.filter(s => s.includes('Retard')).length,
         totalOff: statuses.filter(s => s === 'OFF').length,
         totalDays: statuses.filter(s => s !== '').length,
       }
@@ -302,7 +489,8 @@ const date = [
       dates.forEach(date => {
         const dateKey = formatDateKey(date)
         const status = emp.dailyStatus.get(dateKey) || ''
-        csv += `${status};`
+        const duration = emp.dailyDuration.get(dateKey) || 0
+        csv += `${status} (${duration}h);`
       })
       csv += '\n'
     })
@@ -325,11 +513,8 @@ const date = [
 
   const getStatusColor = (status: string) => {
     if (!status) return ''
-    if (status === 'Présent') return 'bg-emerald-50 text-emerald-700'
-    if (status === 'OFF') return 'bg-orange-100 text-orange-700'
-    if (status === 'VAC') return 'bg-yellow-100 text-yellow-700'
-    if (status === 'Absence') return 'bg-red-100 text-red-700'
-    if (status.includes('retard')) return 'bg-amber-100 text-amber-700'
+    const option = STATUS_OPTIONS.find(opt => opt.value === status || status.startsWith(opt.value))
+    if (option) return option.color
     return 'bg-slate-50 text-slate-700'
   }
 
@@ -478,7 +663,7 @@ const date = [
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
               <Calendar className="w-4 h-4 text-indigo-500" />
-              Calendrier des présences
+              Calendrier des présences <span className="text-xs font-normal text-muted-foreground">(Cliquez sur une cellule pour modifier)</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -519,12 +704,20 @@ const date = [
                         {dates.map(date => {
                           const dateKey = formatDateKey(date)
                           const status = emp.dailyStatus.get(dateKey) || ''
+                          const duration = emp.dailyDuration.get(dateKey) || 0
                           return (
                             <td 
                               key={dateKey} 
-                              className={`border border-slate-200 px-1 py-2 text-center ${getStatusColor(status)}`}
+                              className={`border border-slate-200 px-1 py-2 text-center cursor-pointer hover:ring-2 hover:ring-indigo-400 transition-all ${getStatusColor(status)}`}
+                              onClick={() => handleCellClick(emp.id, date, status, duration)}
+                              title="Cliquez pour modifier"
                             >
-                              {status}
+                              <div className="flex flex-col items-center gap-1">
+                                <span className="font-medium">{status || '-'}</span>
+                                {status && duration > 0 && (
+                                  <span className="text-[10px] opacity-75">{duration}h</span>
+                                )}
+                              </div>
                             </td>
                           )
                         })}
@@ -587,6 +780,15 @@ const date = [
           </Button>
         </div>
       </div>
+
+      {/* ✅ DIALOG D'ÉDITION */}
+      <EditAttendanceCellDialog
+        open={editDialogOpen}
+        onClose={() => setEditDialogOpen(false)}
+        onSave={handleSaveCell}
+        editData={currentEditCell}
+        date={currentEditDate}
+      />
     </DashboardLayout>
   )
 }
