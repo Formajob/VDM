@@ -20,7 +20,7 @@ Allow: /
  python convert_excel.py 
 cd C:\Users\User18\Desktop\VDM
 git add .
-git commit -m "feat: deashbord : test  "
+git commit -m "feat: new performance  "
 git push origin main
 
  */}

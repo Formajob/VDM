@@ -2,768 +2,861 @@
 
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import DashboardLayout from '@/components/layout/DashboardLayout'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Calendar as CalendarComponent } from '@/components/ui/calendar'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { toast } from 'sonner'
 import { 
-  Download, Calendar, Users, TrendingUp, FileText, AlertCircle,
-  ChevronLeft, ChevronRight, Filter, BarChart3, Edit2, X
+  Clock, Calendar, Users, Filter, Download, 
+  CheckCircle, AlertTriangle, XCircle, TrendingUp, Search, Coffee, Utensils
 } from 'lucide-react'
 import { useDemoMode, DemoUser } from '@/hooks/useDemoMode'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 
 interface AttendanceRecord {
   id: string
   userId: string
-  status: string
+  date: string
+  status: 'EN_PRODUCTION' | 'PAUSE' | 'LUNCH' | 'REUNION' | 'FORMATION' | 'AUTRE' | 'ABSENT'
   startedAt: string
   endedAt: string | null
   durationMin: number | null
   note: string | null
-  user?: { name: string }
+  user?: { name: string; email: string; jobRole: string }
+  plannedShift?: { start: string; end: string }
   isLate?: boolean
+  isEarlyDeparture?: boolean
   lateMinutes?: number
+  earlyMinutes?: number
+  adherencePercent?: number
 }
 
-interface EmployeeData {
-  id: string
-  name: string
-  pr: string
-  project: string
-  dailyStatus: Map<string, string>
-  dailyDuration: Map<string, number>
-}
-
-interface EmployeeSummary {
-  id: string
-  name: string
-  totalPresent: number
-  totalAbsent: number
-  totalVac: number
-  totalLate: number
-  totalOff: number
-  totalDays: number
-}
-
-interface EditCellData {
-  employeeId: string
+interface DailyStats {
   date: string
-  currentStatus: string
-  currentDuration: number
+  totalRecords: number
+  onTime: number
+  late: number
+  earlyDeparture: number
+  absences: number
+  overruns: number
+  avgAdherence: number
+  records: AttendanceRecord[]
+}
+
+interface TimeBlock {
+  start: Date
+  end: Date
+  type: 'Shift' | 'pause' | 'Lunch' | 'Retard' | 'Départ anticipé' | 'Absence' | 'Dépassement pause'
+  duration: string
+  color: string
+  label: string
+  isIssue?: boolean
+}
+
+const TIME_BLOCK_COLORS: Record<string, { bg: string; border: string; label: string }> = {
+  'Shift': { bg: 'bg-emerald-500', border: 'border-emerald-600', label: 'Shift' },
+  'pause': { bg: 'bg-yellow-200', border: 'border-yellow-300', label: 'Pause' },
+  'Lunch': { bg: 'bg-amber-500', border: 'border-amber-600', label: 'Lunch' },
+  'Retard': { bg: 'bg-red-600', border: 'border-red-700', label: 'Retard' },
+  'Départ anticipé': { bg: 'bg-red-600', border: 'border-red-700', label: 'Départ anticipé' },
+  'Absence': { bg: 'bg-red-700', border: 'border-red-800', label: 'Absence' },
+  'Dépassement pause': { bg: 'bg-red-500', border: 'border-red-600', label: 'Dépassement' },
 }
 
 const STATUS_OPTIONS = [
-  { value: 'Présent', label: 'Présent', color: 'bg-emerald-100 text-emerald-700' },
-  { value: 'Absence', label: 'Absence', color: 'bg-red-100 text-red-700' },
-  { value: 'VAC', label: 'Congé', color: 'bg-yellow-100 text-yellow-700' },
-  { value: 'OFF', label: 'OFF', color: 'bg-orange-100 text-orange-700' },
-  { value: 'Retard', label: 'Retard', color: 'bg-amber-100 text-amber-700' },
-  { value: 'Départ anticipé', label: 'Départ anticipé', color: 'bg-purple-100 text-purple-700' },
-  { value: 'Télétravail', label: 'Télétravail', color: 'bg-blue-100 text-blue-700' },
+  { value: 'EN_PRODUCTION', label: 'Production', color: 'bg-indigo-100 text-indigo-700' },
+  { value: 'PAUSE', label: 'Pause', color: 'bg-amber-100 text-amber-700', icon: Coffee },
+  { value: 'LUNCH', label: 'Déjeuner', color: 'bg-orange-100 text-orange-700', icon: Utensils },
+  { value: 'REUNION', label: 'Réunion', color: 'bg-blue-100 text-blue-700' },
+  { value: 'FORMATION', label: 'Formation', color: 'bg-emerald-100 text-emerald-700' },
+  { value: 'AUTRE', label: 'Autre', color: 'bg-slate-100 text-slate-700' },
+  { value: 'ABSENT', label: 'Absent', color: 'bg-red-100 text-red-700' },
 ]
 
-function formatDateKey(date: Date): string {
-  return [
-    date.getFullYear(),
-    String(date.getMonth() + 1).padStart(2, '0'),
-    String(date.getDate()).padStart(2, '0')
-  ].join('-')
+function formatDate(date: Date): string {
+  return date.toISOString().split('T')[0]
 }
 
 function formatDisplayDate(date: Date): string {
-  return date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  try {
+    return new Date(date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
+  } catch {
+    return 'Date invalide'
+  }
 }
 
-function formatMonthYear(date: Date): string {
-  return date.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })
+function formatTime(dateString: string): string {
+  if (!dateString) return '—'
+  try {
+    return new Date(dateString).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+  } catch {
+    return '—'
+  }
 }
 
-function getDayName(date: Date): string {
-  const days = ['DIMANCHE', 'LUNDI', 'MARDI', 'MERCREDI', 'JEUDI', 'VENDREDI', 'SAMEDI']
-  return days[date.getDay()]
+function formatDateInTable(dateString: string): string {
+  try {
+    const date = new Date(dateString)
+    return date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
+  } catch {
+    return 'Date invalide'
+  }
 }
 
-function getPayrollPeriod(selectedDate: Date) {
-  const today = new Date()
-  const currentDay = today.getDate()
-  
-  let startDate: Date
-  let endDate: Date
-  
-  if (currentDay >= 20) {
-    startDate = new Date(today.getFullYear(), today.getMonth(), 20)
-    endDate = new Date(today.getFullYear(), today.getMonth() + 1, 19)
-  } else {
-    startDate = new Date(today.getFullYear(), today.getMonth() - 1, 20)
-    endDate = new Date(today.getFullYear(), today.getMonth(), 19)
+function getStatusBadge(status: string) {
+  const config: Record<string, { label: string; color: string; icon?: any }> = {
+    EN_PRODUCTION: { label: 'Production', color: 'bg-indigo-100 text-indigo-700' },
+    PAUSE: { label: 'Pause', color: 'bg-amber-100 text-amber-700', icon: Coffee },
+    LUNCH: { label: 'Déjeuner', color: 'bg-orange-100 text-orange-700', icon: Utensils },
+    REUNION: { label: 'Réunion', color: 'bg-blue-100 text-blue-700' },
+    FORMATION: { label: 'Formation', color: 'bg-emerald-100 text-emerald-700' },
+    AUTRE: { label: 'Autre', color: 'bg-slate-100 text-slate-700' },
+    ABSENT: { label: 'Absent', color: 'bg-red-100 text-red-700' },
+  }
+  const cfg = config[status] || { label: status, color: 'bg-slate-100 text-slate-700' }
+  return <Badge className={`${cfg.color} border-0 text-xs`}>{cfg.label}</Badge>
+}
+
+function getPerformanceBadge(record: AttendanceRecord) {
+  if (record.status === 'ABSENT') {
+    return <Badge className="bg-red-100 text-red-700 border-0"><XCircle className="w-3 h-3 mr-1" />Absence</Badge>
   }
   
-  if (selectedDate) {
-    const year = selectedDate.getFullYear()
-    const month = selectedDate.getMonth()
-    startDate = new Date(year, month - 1, 20)
-    endDate = new Date(year, month, 19)
+  if (record.status === 'PAUSE' && (record.durationMin || 0) > 30) {
+    return <Badge className="bg-red-100 text-red-700 border-0"><AlertTriangle className="w-3 h-3 mr-1" />Dépassement ({record.durationMin}min)</Badge>
+  }
+  if (record.status === 'LUNCH' && (record.durationMin || 0) > 60) {
+    return <Badge className="bg-red-100 text-red-700 border-0"><AlertTriangle className="w-3 h-3 mr-1" />Dépassement ({record.durationMin}min)</Badge>
   }
   
-  const dates: Date[] = []
-  const current = new Date(startDate)
-  while (current <= endDate) {
-    dates.push(new Date(current))
-    current.setDate(current.getDate() + 1)
+  if (record.isLate && record.isEarlyDeparture) {
+    return <Badge className="bg-red-100 text-red-700 border-0"><XCircle className="w-3 h-3 mr-1" />Retard + Départ</Badge>
   }
-  
-  return { dates, startDate, endDate }
+  if (record.isLate) {
+    return <Badge className="bg-red-100 text-red-700 border-0"><AlertTriangle className="w-3 h-3 mr-1" />Retard ({record.lateMinutes}min)</Badge>
+  }
+  if (record.isEarlyDeparture) {
+    return <Badge className="bg-red-100 text-red-700 border-0"><Clock className="w-3 h-3 mr-1" />Départ ({record.earlyMinutes}min)</Badge>
+  }
+  return <Badge className="bg-emerald-100 text-emerald-700 border-0"><CheckCircle className="w-3 h-3 mr-1" />À l'heure</Badge>
 }
 
-// ✅ COMPOSANT: Formulaire d'édition de cellule
-function EditAttendanceCellDialog({ 
-  open, 
-  onClose, 
-  onSave, 
-  editData, 
-  date 
-}: { 
-  open: boolean
-  onClose: () => void
-  onSave: (status: string, duration: number) => Promise<void>
-  editData: EditCellData | null
-  date: Date | null
-}) {
-  const [status, setStatus] = useState('')
-  const [duration, setDuration] = useState('')
-  const [saving, setSaving] = useState(false)
-
-  useEffect(() => {
-    if (editData) {
-      setStatus(editData.currentStatus || 'Présent')
-      setDuration(editData.currentDuration > 0 ? editData.currentDuration.toString() : '8')
-    }
-  }, [editData])
-
-  const handleSave = async () => {
-    if (!status) {
-      toast.error('Veuillez sélectionner un statut')
-      return
-    }
+// ✅ COMPOSANT: Barre temporelle avec retards et dépassements en rouge
+function DayTimeline({ records, date }: { records: AttendanceRecord[], date: string }) {
+  const timeBlocks: TimeBlock[] = useMemo(() => {
+    const blocks: TimeBlock[] = []
     
-    const durationNum = parseFloat(duration) || 0
-    setSaving(true)
-    await onSave(status, durationNum)
-    setSaving(false)
-    onClose()
+    if (!records || records.length === 0) return blocks
+
+    // Shift standard: 8h00 - 17h00
+    const plannedStart = new Date(date + 'T08:00:00')
+    const plannedEnd = new Date(date + 'T17:00:00')
+    
+    const sortedRecords = [...records].sort((a, b) => 
+      new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime()
+    )
+    
+    sortedRecords.forEach(record => {
+      const actualStart = new Date(record.startedAt)
+      const actualEnd = record.endedAt ? new Date(record.endedAt) : new Date(actualStart.getTime() + (record.durationMin || 0) * 60000)
+      const duration = record.durationMin || 0
+      
+      // ✅ DÉTECTION RETARD: Comparer début réel vs planning
+      if (record.status === 'EN_PRODUCTION' && actualStart > plannedStart) {
+        const lateMinutes = Math.floor((actualStart.getTime() - plannedStart.getTime()) / 60000)
+        if (lateMinutes > 0) {
+          blocks.push({
+            start: plannedStart,
+            end: actualStart,
+            type: 'Retard',
+            duration: `${Math.floor(lateMinutes / 60)}h${lateMinutes % 60}`.padStart(5, '0'),
+            color: TIME_BLOCK_COLORS['Retard'].bg,
+            label: 'Retard',
+            isIssue: true
+          })
+        }
+      }
+      
+      // ✅ DÉTECTION DÉPART ANTICIPÉ: Comparer fin réelle vs planning
+      if (record.status === 'EN_PRODUCTION' && actualEnd < plannedEnd) {
+        const earlyMinutes = Math.floor((plannedEnd.getTime() - actualEnd.getTime()) / 60000)
+        if (earlyMinutes > 0 && record.endedAt) {
+          blocks.push({
+            start: actualEnd,
+            end: plannedEnd,
+            type: 'Départ anticipé',
+            duration: `${Math.floor(earlyMinutes / 60)}h${earlyMinutes % 60}`.padStart(5, '0'),
+            color: TIME_BLOCK_COLORS['Départ anticipé'].bg,
+            label: 'Départ anticipé',
+            isIssue: true
+          })
+        }
+      }
+      
+      // ✅ DÉTECTION DÉPASSEMENT PAUSE
+      if ((record.status === 'PAUSE' && duration > 30) || (record.status === 'LUNCH' && duration > 60)) {
+        const maxDuration = record.status === 'PAUSE' ? 30 : 60
+        const overrunMinutes = duration - maxDuration
+        
+        // Calculer le début du dépassement (après la durée normale)
+        const overrunStart = new Date(actualStart.getTime() + maxDuration * 60000)
+        
+        blocks.push({
+          start: overrunStart,
+          end: actualEnd,
+          type: 'Dépassement pause',
+          duration: `${Math.floor(overrunMinutes / 60)}h${overrunMinutes % 60}`.padStart(5, '0'),
+          color: TIME_BLOCK_COLORS['Dépassement pause'].bg,
+          label: 'Dépassement',
+          isIssue: true
+        })
+      }
+      
+      // Bloc normal
+      let type: TimeBlock['type'] = 'Shift'
+      if (record.status === 'ABSENT') type = 'Absence'
+      else if (record.status === 'PAUSE') type = 'pause'
+      else if (record.status === 'LUNCH') type = 'Lunch'
+      
+      const config = TIME_BLOCK_COLORS[type] || TIME_BLOCK_COLORS['Shift']
+      
+      blocks.push({
+        start: actualStart,
+        end: actualEnd,
+        type,
+        duration: `${Math.floor(duration / 60)}h${duration % 60}`.padStart(5, '0'),
+        color: config.bg,
+        label: config.label,
+        isIssue: false
+      })
+    })
+    
+    // Trier les blocs par heure de début
+    return blocks.sort((a, b) => a.start.getTime() - b.start.getTime())
+  }, [records, date])
+
+  if (timeBlocks.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-12 bg-slate-100 rounded">
+        <span className="text-xs text-slate-400">Aucune donnée</span>
+      </div>
+    )
   }
 
-  if (!editData || !date) return null
+  const dayStart = new Date(date + 'T08:00:00')
+  const dayEnd = new Date(date + 'T17:00:00')
+  const totalDayMinutes = (dayEnd.getTime() - dayStart.getTime()) / 60000
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[425px]">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Edit2 className="w-5 h-5 text-indigo-600" />
-            Modifier la présence
-          </DialogTitle>
-          <DialogDescription>
-            {getDayName(date)} {formatDisplayDate(date)}
-          </DialogDescription>
-        </DialogHeader>
-        
-        <div className="grid gap-4 py-4">
-          <div className="grid gap-2">
-            <Label htmlFor="status">Statut *</Label>
-            <Select value={status} onValueChange={setStatus}>
-              <SelectTrigger>
-                <SelectValue placeholder="Sélectionner un statut" />
-              </SelectTrigger>
-              <SelectContent>
-                {STATUS_OPTIONS.map(opt => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          
-          <div className="grid gap-2">
-            <Label htmlFor="duration">Durée (heures) *</Label>
-            <Input
-              id="duration"
-              type="number"
-              step="0.25"
-              min="0"
-              max="24"
-              value={duration}
-              onChange={(e) => setDuration(e.target.value)}
-              placeholder="Ex: 8.00"
-            />
-            <p className="text-xs text-muted-foreground">
-              Entrez la durée en heures (ex: 8 pour une journée complète)
-            </p>
-          </div>
+    <div className="space-y-2">
+      <div className="flex text-[10px] text-slate-500 px-1">
+        <div className="w-12 flex-shrink-0">08:00</div>
+        <div className="flex-1 flex justify-between">
+          <span>09:00</span>
+          <span>10:00</span>
+          <span>11:00</span>
+          <span>12:00</span>
+          <span>13:00</span>
+          <span>14:00</span>
+          <span>15:00</span>
+          <span>16:00</span>
+          <span>17:00</span>
         </div>
-        
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            <X className="w-4 h-4 mr-2" />
-            Annuler
-          </Button>
-          <Button onClick={handleSave} disabled={saving}>
-            {saving ? 'Enregistrement...' : 'Enregistrer'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      </div>
+      
+      <div className="flex h-10 rounded overflow-hidden bg-slate-100 relative border border-slate-300">
+        {timeBlocks.map((block, idx) => {
+          const startMinutes = (block.start.getTime() - dayStart.getTime()) / 60000
+          const endMinutes = (block.end.getTime() - dayStart.getTime()) / 60000
+          const leftPercent = Math.max(0, Math.min(100, (startMinutes / totalDayMinutes) * 100))
+          const widthPercent = Math.max(0, Math.min(100 - leftPercent, ((endMinutes - startMinutes) / totalDayMinutes) * 100))
+          
+          return (
+            <div
+              key={idx}
+              className={`${block.color} absolute h-full border-r border-white/20 transition-all hover:opacity-80 cursor-pointer flex items-center justify-center ${block.isIssue ? 'animate-pulse' : ''}`}
+              style={{
+                left: `${leftPercent}%`,
+                width: `${widthPercent}%`
+              }}
+              title={`${block.label}: ${formatTime(block.start.toISOString())} - ${formatTime(block.end.toISOString())} (${block.duration}) ${block.isIssue ? '⚠️' : ''}`}
+            >
+              {widthPercent > 10 && (
+                <span className="text-[10px] text-white font-medium drop-shadow">
+                  {block.isIssue && '⚠️ '}
+                  {block.duration}
+                </span>
+              )}
+            </div>
+          )
+        })}
+      </div>
+      
+      <div className="flex flex-wrap gap-2 text-[10px]">
+        {timeBlocks.map((block, idx) => (
+          <div key={idx} className={`flex items-center gap-1 px-2 py-1 rounded ${block.isIssue ? 'bg-red-50 border border-red-200' : 'bg-slate-50'}`}>
+            <div className={`w-2 h-2 rounded-full ${block.color}`} />
+            <span className={`font-medium ${block.isIssue ? 'text-red-700' : 'text-slate-600'}`}>{block.label}</span>
+            <span className="text-slate-500">
+              {formatTime(block.start.toISOString())} - {formatTime(block.end.toISOString())} ({block.duration})
+            </span>
+            {block.isIssue && <AlertTriangle className="w-3 h-3 text-red-600" />}
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }
 
-export default function AdminAttendanceReportsPage() {
-  const { data: session, status } = useSession()
+export default function AdminAttendanceHistoryPage() {
+  const { data, status } = useSession()
   const { isDemo, demoUser } = useDemoMode()
   const router = useRouter()
   
-  const user: DemoUser | null = (session?.user as DemoUser) || demoUser || null
+  const user: DemoUser | null = (data?.user as DemoUser) || demoUser || null
   const isAdmin = user?.role === 'ADMIN'
 
-  const [members, setMembers] = useState<any[]>([])
-  const [selectedMonth, setSelectedMonth] = useState<Date>(new Date())
-  const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([])
-  const [loading, setLoading] = useState(true)
-  const [employeeData, setEmployeeData] = useState<EmployeeData[]>([])
-  
-  // ✅ NOUVEAU: États pour l'édition
-  const [editDialogOpen, setEditDialogOpen] = useState(false)
-  const [currentEditCell, setCurrentEditCell] = useState<EditCellData | null>(null)
-  const [currentEditDate, setCurrentEditDate] = useState<Date | null>(null)
-
-  const { dates, startDate, endDate } = useMemo(() => 
-    getPayrollPeriod(selectedMonth),
-    [selectedMonth]
-  )
+  const [records, setRecords] = useState<AttendanceRecord[]>([])
+  const [members, setMembers] = useState<{ id: string; name: string; jobRole: string }[]>([])
+  const [selectedMember, setSelectedMember] = useState<string>('all')
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date())
+  const [searchQuery, setSearchQuery] = useState('')
+  const [statusFilter, setStatusFilter] = useState<string>('all')
+  const [loading, setLoading] = useState(false)
+  const [dailyStats, setDailyStats] = useState<DailyStats[]>([])
 
   useEffect(() => {
     if (!isDemo && status === 'unauthenticated') router.push('/login')
     if (!isAdmin && !isDemo) router.push('/dashboard')
   }, [status, router, isDemo, isAdmin])
 
-  useEffect(() => {
-    if (status !== 'authenticated' && !isDemo) return
-
-    async function fetchData() {
-      try {
-        setLoading(true)
-        
-        const membersRes = await fetch('/api/users', { credentials: 'include' })
-        if (!membersRes.ok) throw new Error('Failed to fetch users')
-        const users = await membersRes.json()
-        
-        const membersOnly = users.filter((u: any) => u.role === 'MEMBER')
-        setMembers(membersOnly)
-        setSelectedMemberIds(membersOnly.map((m: any) => m.id))
-        
-        const params = new URLSearchParams({
-          dateFrom: formatDateKey(startDate),
-          dateTo: formatDateKey(endDate),
-          all: 'true',
-        })
-        
-        const attendanceRes = await fetch(`/api/attendance?${params}`, { credentials: 'include' })
-        if (!attendanceRes.ok) throw new Error('Failed to fetch attendance')
-        const attendanceData: AttendanceRecord[] = await attendanceRes.json()
-        
-        const employeeMap = new Map<string, EmployeeData>()
-        
-        membersOnly.forEach((member: any) => {
-          employeeMap.set(member.id, {
-            id: member.id,
-            name: member.name,
-            pr: member.pr || 'N/A',
-            project: member.jobRole || 'VD',
-            dailyStatus: new Map(),
-            dailyDuration: new Map(),
-          })
-        })
-        
-        attendanceData.forEach((record: AttendanceRecord) => {
-          const recordDate = new Date(record.startedAt + 'Z')
-          const date = [
-            recordDate.getFullYear(),
-            String(recordDate.getMonth() + 1).padStart(2, '0'),
-            String(recordDate.getDate()).padStart(2, '0')
-          ].join('-')
-          
-          const emp = employeeMap.get(record.userId)
-          if (!emp) return
-          
-          let status = 'Présent'
-          let duration = record.durationMin ? record.durationMin / 60 : 8
-          
-          if (record.status === 'ABSENT') {
-            status = 'Absence'
-            duration = 0
-          } else if (record.status === 'CONGE') {
-            status = 'VAC'
-            duration = 8
-          } else if (record.status === 'PAUSE' || record.status === 'LUNCH') {
-            return
-          } else if (record.isLate && record.lateMinutes && record.lateMinutes < 999) {
-            const hours = Math.floor(record.lateMinutes / 60)
-            const mins = record.lateMinutes % 60
-            status = `Retard ${hours}h${mins.toString().padStart(2, '0')}`
-          }
-          
-          const currentStatus = emp.dailyStatus.get(date)
-          if (!currentStatus || currentStatus === 'Présent') {
-            emp.dailyStatus.set(date, status)
-            emp.dailyDuration.set(date, duration)
-          }
-        })
-        
-        setEmployeeData(Array.from(employeeMap.values()).sort((a, b) => a.name.localeCompare(b.name)))
-        
-      } catch (error: any) {
-        console.error('Fetch error:', error)
-        toast.error('Erreur: ' + error.message)
-      } finally {
-        setLoading(false)
-      }
+  const fetchMembers = useCallback(async () => {
+    const res = await fetch('/api/users')
+    if (res.ok) {
+      const users = await res.json()
+      const membersOnly = users.filter((u: any) => u.role === 'MEMBER')
+      setMembers(membersOnly)
     }
-    
-    fetchData()
-  }, [startDate, endDate, status, isDemo])
+  }, [])
 
-  // ✅ NOUVELLE FONCTION: Ouvrir le dialog d'édition
-  const handleCellClick = (employeeId: string, date: Date, currentStatus: string, currentDuration: number) => {
-    setCurrentEditCell({
-      employeeId,
-      date: formatDateKey(date),
-      currentStatus,
-      currentDuration
-    })
-    setCurrentEditDate(date)
-    setEditDialogOpen(true)
-  }
-
-  // ✅ NOUVELLE FONCTION: Sauvegarder les modifications
-  const handleSaveCell = async (status: string, duration: number) => {
-    if (!currentEditCell) return
-    
+  const fetchAttendanceRecords = useCallback(async () => {
+    setLoading(true)
     try {
-      // Mettre à jour l'API
-      const res = await fetch('/api/attendance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: currentEditCell.employeeId,
-          date: currentEditCell.date,
-          status: status === 'Absence' ? 'ABSENT' : 
-                  status === 'VAC' ? 'CONGE' : 
-                  status === 'Présent' ? 'PRESENT' : 'PRESENT',
-          durationMin: duration * 60,
-          note: status
-        }),
+      const params = new URLSearchParams({
+        date: formatDate(selectedDate),
       })
-      
-      if (!res.ok) throw new Error('Failed to update attendance')
-      
-      // Mettre à jour l'état local
-      setEmployeeData(prev => prev.map(emp => {
-        if (emp.id === currentEditCell.employeeId) {
-          const newDailyStatus = new Map(emp.dailyStatus)
-          const newDailyDuration = new Map(emp.dailyDuration)
-          newDailyStatus.set(currentEditCell.date, status)
-          newDailyDuration.set(currentEditCell.date, duration)
-          return {
-            ...emp,
-            dailyStatus: newDailyStatus,
-            dailyDuration: newDailyDuration
+      if (selectedMember !== 'all') {
+        params.set('userId', selectedMember)
+      }
+
+      const res = await fetch(`/api/attendance?${params}`)
+      if (res.ok) {
+        const data = await res.json()
+        
+        // Calculer les retards et départs anticipés basés sur le planning
+        const processedRecords = data.map((record: AttendanceRecord) => {
+          if (record.plannedShift?.start && record.plannedShift?.end) {
+            const plannedStart = new Date(`${record.date}T${record.plannedShift.start}`)
+            const plannedEnd = new Date(`${record.date}T${record.plannedShift.end}`)
+            const actualStart = new Date(record.startedAt)
+            const actualEnd = record.endedAt ? new Date(record.endedAt) : null
+            
+            // Calcul du retard
+            if (actualStart > plannedStart) {
+              const lateMinutes = Math.floor((actualStart.getTime() - plannedStart.getTime()) / 60000)
+              record.isLate = lateMinutes > 0
+              record.lateMinutes = lateMinutes
+            }
+            
+            // Calcul du départ anticipé
+            if (actualEnd && actualEnd < plannedEnd) {
+              const earlyMinutes = Math.floor((plannedEnd.getTime() - actualEnd.getTime()) / 60000)
+              record.isEarlyDeparture = earlyMinutes > 0
+              record.earlyMinutes = earlyMinutes
+            }
           }
-        }
-        return emp
-      }))
-      
-      toast.success('Présence mise à jour avec succès')
-    } catch (error: any) {
-      console.error('Update error:', error)
-      toast.error('Erreur lors de la mise à jour: ' + error.message)
+          
+          return record
+        })
+        
+        setRecords(processedRecords)
+        calculateDailyStats(processedRecords)
+      }
+    } catch {
+      toast.error('Erreur lors du chargement des données')
+    } finally {
+      setLoading(false)
     }
-  }
+  }, [selectedDate, selectedMember])
 
-  const handlePreviousMonth = () => {
-    const newMonth = new Date(selectedMonth)
-    newMonth.setMonth(newMonth.getMonth() - 1)
-    setSelectedMonth(newMonth)
-  }
-
-  const handleNextMonth = () => {
-    const newMonth = new Date(selectedMonth)
-    newMonth.setMonth(newMonth.getMonth() + 1)
-    setSelectedMonth(newMonth)
-  }
-
-  const handleToday = () => {
-    setSelectedMonth(new Date())
-  }
-
-  const filteredEmployees = employeeData.filter(emp => 
-    selectedMemberIds.includes(emp.id)
-  )
-
-  const toggleMember = (memberId: string) => {
-    setSelectedMemberIds(prev => 
-      prev.includes(memberId)
-        ? prev.filter(id => id !== memberId)
-        : [...prev, memberId]
-    )
-  }
-
-  const selectAllMembers = () => {
-    setSelectedMemberIds(members.map(m => m.id))
-  }
-
-  const deselectAllMembers = () => {
-    setSelectedMemberIds([])
-  }
-
-  const totalEmployees = filteredEmployees.length
-  const presentDays = filteredEmployees.reduce((acc, emp) => 
-    acc + Array.from(emp.dailyStatus.values()).filter(s => s === 'Présent').length, 0
-  )
-  const absentDays = filteredEmployees.reduce((acc, emp) => 
-    acc + Array.from(emp.dailyStatus.values()).filter(s => s === 'Absence').length, 0
-  )
-  const vacDays = filteredEmployees.reduce((acc, emp) => 
-    acc + Array.from(emp.dailyStatus.values()).filter(s => s === 'VAC').length, 0
-  )
-  const lateDays = filteredEmployees.reduce((acc, emp) => 
-    acc + Array.from(emp.dailyStatus.values()).filter(s => s.includes('Retard')).length, 0
-  )
-  const offDays = filteredEmployees.reduce((acc, emp) => 
-    acc + Array.from(emp.dailyStatus.values()).filter(s => s === 'OFF').length, 0
-  )
-
-  const employeeSummary: EmployeeSummary[] = useMemo(() => {
-    return filteredEmployees.map(emp => {
-      const statuses = Array.from(emp.dailyStatus.values())
-      return {
-        id: emp.id,
-        name: emp.name,
-        totalPresent: statuses.filter(s => s === 'Présent').length,
-        totalAbsent: statuses.filter(s => s === 'Absence').length,
-        totalVac: statuses.filter(s => s === 'VAC').length,
-        totalLate: statuses.filter(s => s.includes('Retard')).length,
-        totalOff: statuses.filter(s => s === 'OFF').length,
-        totalDays: statuses.filter(s => s !== '').length,
+  const calculateDailyStats = (data: AttendanceRecord[]) => {
+    const statsMap = new Map<string, DailyStats>()
+    
+    data.forEach(record => {
+      const date = record.startedAt.split('T')[0]
+      if (!statsMap.has(date)) {
+        statsMap.set(date, { 
+          date, 
+          totalRecords: 0, 
+          onTime: 0, 
+          late: 0, 
+          earlyDeparture: 0, 
+          absences: 0,
+          overruns: 0,
+          avgAdherence: 0,
+          records: []
+        })
+      }
+      const stats = statsMap.get(date)!
+      stats.totalRecords++
+      stats.records.push(record)
+      
+      if (record.status === 'ABSENT') {
+        stats.absences++
+      } else if (record.isLate) {
+        stats.late++
+      } else if (record.isEarlyDeparture) {
+        stats.earlyDeparture++
+      } else {
+        stats.onTime++
+      }
+      
+      if ((record.status === 'PAUSE' && (record.durationMin || 0) > 30) ||
+          (record.status === 'LUNCH' && (record.durationMin || 0) > 60)) {
+        stats.overruns++
       }
     })
-  }, [filteredEmployees])
 
-  const handleExportExcel = () => {
-    let csv = 'Nom & Prénom;Projets;PR;'
-    dates.forEach(date => {
-      csv += `${getDayName(date)} ${formatDateKey(date)};`
-    })
-    csv += '\n'
+    setDailyStats(Array.from(statsMap.values()).sort((a, b) => a.date.localeCompare(b.date)))
+  }
+
+  useEffect(() => {
+    fetchMembers()
+  }, [fetchMembers])
+
+  useEffect(() => {
+    fetchAttendanceRecords()
+  }, [fetchAttendanceRecords])
+
+  const getFilteredRecords = () => {
+    let filtered = records
+
+    if (searchQuery) {
+      filtered = filtered.filter(r => 
+        r.user?.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        r.user?.email?.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    }
+
+    if (statusFilter !== 'all') {
+      if (statusFilter === 'late') {
+        filtered = filtered.filter(r => r.isLate && r.lateMinutes !== 999)
+      } else if (statusFilter === 'early') {
+        filtered = filtered.filter(r => r.isEarlyDeparture && !r.isLate)
+      } else if (statusFilter === 'ontime') {
+        filtered = filtered.filter(r => !r.isLate && !r.isEarlyDeparture && r.status !== 'ABSENT')
+      } else if (statusFilter === 'absent') {
+        filtered = filtered.filter(r => r.status === 'ABSENT')
+      } else if (statusFilter === 'overrun') {
+        filtered = filtered.filter(r => 
+          (r.status === 'PAUSE' && (r.durationMin || 0) > 30) ||
+          (r.status === 'LUNCH' && (r.durationMin || 0) > 60)
+        )
+      } else {
+        filtered = filtered.filter(r => r.status === statusFilter)
+      }
+    }
+
+    return filtered
+  }
+
+  const handleExportCSV = () => {
+    const filtered = getFilteredRecords()
+    let csv = 'Date,Membre,Rôle,Statut,Début,Fin,Durée,Retard,Départ anticipé,Note\n'
     
-    filteredEmployees.forEach(emp => {
-      csv += `${emp.name};${emp.project};${emp.pr};`
-      dates.forEach(date => {
-        const dateKey = formatDateKey(date)
-        const status = emp.dailyStatus.get(dateKey) || ''
-        const duration = emp.dailyDuration.get(dateKey) || 0
-        csv += `${status} (${duration}h);`
-      })
-      csv += '\n'
+    filtered.forEach(r => {
+      const row = [
+        r.startedAt.split('T')[0],
+        `"${r.user?.name || 'N/A'}"`,
+        `"${r.user?.jobRole || 'N/A'}"`,
+        r.status,
+        formatTime(r.startedAt),
+        formatTime(r.endedAt || ''),
+        r.durationMin ? `${r.durationMin}min` : '—',
+        r.isLate ? `${r.lateMinutes}min` : 'Non',
+        r.isEarlyDeparture ? `${r.earlyMinutes}min` : 'Non',
+        `"${r.note || ''}"`
+      ]
+      csv += row.join(',') + '\n'
     })
-    
-    csv += '\n\nRÉSUMÉ PAR MEMBRE\n'
-    csv += 'Nom;Présents;Absences;Congés;Retards;OFF;Total jours\n'
-    employeeSummary.forEach(summary => {
-      csv += `${summary.name};${summary.totalPresent};${summary.totalAbsent};${summary.totalVac};${summary.totalLate};${summary.totalOff};${summary.totalDays}\n`
-    })
-    
-    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' })
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `Attendance_Report_${formatDateKey(startDate).slice(0, 7)}.csv`
+    a.download = `attendance_${formatDate(selectedDate)}.csv`
     a.click()
     URL.revokeObjectURL(url)
-    toast.success('Rapport téléchargé avec résumé')
+    toast.success('Export CSV téléchargé')
   }
 
-  const getStatusColor = (status: string) => {
-    if (!status) return ''
-    const option = STATUS_OPTIONS.find(opt => opt.value === status || status.startsWith(opt.value))
-    if (option) return option.color
-    return 'bg-slate-50 text-slate-700'
+  const getOverallStats = () => {
+    const filtered = getFilteredRecords()
+    
+    let totalPlannedMinutes = 0
+    let totalLostMinutes = 0
+    let absences = 0
+    let overruns = 0
+    
+    filtered.forEach(record => {
+      if (record.plannedShift?.start && record.plannedShift?.end) {
+        const [startHour, startMin] = record.plannedShift.start.split(':').map(Number)
+        const [endHour, endMin] = record.plannedShift.end.split(':').map(Number)
+        const plannedMinutes = (endHour * 60 + endMin) - (startHour * 60 + startMin)
+        totalPlannedMinutes += plannedMinutes
+        
+        if (record.status === 'ABSENT') {
+          totalLostMinutes += plannedMinutes
+          absences++
+        } else {
+          if (record.lateMinutes && record.lateMinutes > 0 && record.lateMinutes < 999) {
+            totalLostMinutes += record.lateMinutes
+          }
+          
+          if (record.earlyMinutes && record.earlyMinutes > 0) {
+            totalLostMinutes += record.earlyMinutes
+          }
+        }
+      }
+      
+      if (record.status === 'PAUSE' && record.durationMin) {
+        const overrun = Math.max(0, record.durationMin - 30)
+        if (overrun > 0) {
+          totalLostMinutes += overrun
+          overruns++
+        }
+      }
+      
+      if (record.status === 'LUNCH' && record.durationMin) {
+        const overrun = Math.max(0, record.durationMin - 60)
+        if (overrun > 0) {
+          totalLostMinutes += overrun
+          overruns++
+        }
+      }
+    })
+    
+    const directAbsences = filtered.filter(r => r.status === 'ABSENT').length
+    absences = directAbsences
+    
+    const adherence = totalPlannedMinutes > 0 
+      ? Math.max(0, Math.round(((totalPlannedMinutes - totalLostMinutes) / totalPlannedMinutes) * 100))
+      : 0
+
+    const total = filtered.length
+    const late = filtered.filter(r => r.isLate && r.lateMinutes !== 999).length
+    const early = filtered.filter(r => r.isEarlyDeparture && !r.isLate).length
+    const onTime = filtered.filter(r => !r.isLate && !r.isEarlyDeparture && r.status !== 'ABSENT').length
+
+    return { total, onTime, late, early, absences, overruns, adherence }
   }
 
-  if (!isAdmin && !isDemo) return null
+  const stats = getOverallStats()
+
+  if (status === 'loading' && !isDemo) {
+    return (
+      <DashboardLayout>
+        <div className="min-h-[60vh] flex items-center justify-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-4 border-indigo-200 border-t-indigo-600"></div>
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  if (!isAdmin && !isDemo) {
+    return (
+      <DashboardLayout>
+        <div className="min-h-[60vh] flex flex-col items-center justify-center text-center">
+          <p className="text-muted-foreground">Accès réservé aux administrateurs</p>
+          <Button className="mt-4" onClick={() => router.push('/dashboard')}>Retour</Button>
+        </div>
+      </DashboardLayout>
+    )
+  }
 
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">
-              Rapport de Présences - Paie
-            </h1>
-            <p className="text-muted-foreground">
-              Période du {formatDisplayDate(startDate)} au {formatDisplayDate(endDate)}
-            </p>
-          </div>
-          
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={handlePreviousMonth}>
-              <ChevronLeft className="w-4 h-4 mr-1" />
-              Mois préc.
-            </Button>
-            <Button variant="outline" size="sm" onClick={handleToday}>
-              Ce mois
-            </Button>
-            <Button variant="outline" size="sm" onClick={handleNextMonth}>
-              Mois suiv.
-              <ChevronRight className="w-4 h-4 ml-1" />
-            </Button>
-            <div className="ml-4 px-4 py-2 bg-indigo-50 rounded-lg font-semibold text-indigo-700">
-              {formatMonthYear(selectedMonth)}
-            </div>
-          </div>
+        <div>
+          <h1 className="text-3xl font-bold bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">
+            Historique des Présences
+          </h1>
+          <p className="text-muted-foreground">Consultez l'historique complet des pointages de l'équipe</p>
         </div>
 
-        <div className="grid sm:grid-cols-2 lg:grid-cols-6 gap-4">
-          <Card className="border-2 border-indigo-200">
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">Employés</p>
-                  <p className="text-2xl font-bold text-indigo-600">{totalEmployees}</p>
-                </div>
-                <Users className="w-8 h-8 text-indigo-500" />
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="border-2 border-emerald-200">
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">Jours présents</p>
-                  <p className="text-2xl font-bold text-emerald-600">{presentDays}</p>
-                </div>
-                <TrendingUp className="w-8 h-8 text-emerald-500" />
-              </div>
-            </CardContent>
-          </Card>
+        <div className="grid sm:grid-cols-5 gap-4">
           <Card className="border-2 border-red-200">
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-muted-foreground">Absences</p>
-                  <p className="text-2xl font-bold text-red-600">{absentDays}</p>
+                  <p className="text-2xl font-bold text-red-600">{stats.absences}</p>
                 </div>
-                <FileText className="w-8 h-8 text-red-500" />
+                <XCircle className="w-8 h-8 text-red-500" />
               </div>
             </CardContent>
           </Card>
-          <Card className="border-2 border-yellow-200">
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">Congés</p>
-                  <p className="text-2xl font-bold text-yellow-600">{vacDays}</p>
-                </div>
-                <Calendar className="w-8 h-8 text-yellow-500" />
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="border-2 border-amber-200">
+
+          <Card className="border-2 border-red-200">
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-muted-foreground">Retards</p>
-                  <p className="text-2xl font-bold text-amber-600">{lateDays}</p>
+                  <p className="text-2xl font-bold text-red-600">{stats.late}</p>
                 </div>
-                <AlertCircle className="w-8 h-8 text-amber-500" />
+                <AlertTriangle className="w-8 h-8 text-red-500" />
               </div>
             </CardContent>
           </Card>
-          <Card className="border-2 border-orange-200">
+
+          <Card className="border-2 border-red-200">
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-muted-foreground">Jours OFF</p>
-                  <p className="text-2xl font-bold text-orange-600">{offDays}</p>
+                  <p className="text-sm text-muted-foreground">Départs anticipés</p>
+                  <p className="text-2xl font-bold text-red-600">{stats.early}</p>
                 </div>
-                <Calendar className="w-8 h-8 text-orange-500" />
+                <Clock className="w-8 h-8 text-red-500" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-2 border-red-200">
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Dépassements</p>
+                  <p className="text-2xl font-bold text-red-600">{stats.overruns}</p>
+                </div>
+                <AlertTriangle className="w-8 h-8 text-red-500" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-2 border-blue-200">
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Adhérence</p>
+                  <p className="text-2xl font-bold text-blue-600">{stats.adherence}%</p>
+                </div>
+                <TrendingUp className="w-8 h-8 text-blue-500" />
               </div>
             </CardContent>
           </Card>
         </div>
 
         <Card className="border-2 border-indigo-200">
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <Filter className="w-4 h-4 text-indigo-500" />
-              Filtres par membres
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-4 mb-4">
-              <Button variant="outline" size="sm" onClick={selectAllMembers}>
-                Tout sélectionner
-              </Button>
-              <Button variant="outline" size="sm" onClick={deselectAllMembers}>
-                Tout désélectionner
-              </Button>
-              <span className="text-sm text-muted-foreground">
-                {selectedMemberIds.length} / {members.length} sélectionnés
-              </span>
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 max-h-48 overflow-y-auto p-2 border rounded-lg">
-              {members.map(member => (
-                <div key={member.id} className="flex items-center space-x-2">
-                  <Checkbox
-                    id={member.id}
-                    checked={selectedMemberIds.includes(member.id)}
-                    onCheckedChange={() => toggleMember(member.id)}
+          <CardContent className="pt-6">
+            <div className="grid md:grid-cols-4 gap-4">
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Date</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-full justify-start text-left font-normal">
+                      <Calendar className="w-4 h-4 mr-2" />
+                      {formatDisplayDate(selectedDate)}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0">
+                    <CalendarComponent
+                      mode="single"
+                      selected={selectedDate}
+                      onSelect={(d) => d && setSelectedDate(d)}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Membre</Label>
+                <Select value={selectedMember} onValueChange={setSelectedMember}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Tous" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">👥 Tous les membres</SelectItem>
+                    {members.map(m => (
+                      <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Statut</Label>
+                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Tous" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Tous les statuts</SelectItem>
+                    <SelectItem value="ontime">✅ À l'heure</SelectItem>
+                    <SelectItem value="late">⚠️ Retards</SelectItem>
+                    <SelectItem value="early">🕐 Départs anticipés</SelectItem>
+                    <SelectItem value="absent">❌ Absences</SelectItem>
+                    <SelectItem value="overrun">⏱️ Dépassements</SelectItem>
+                    <SelectItem value="EN_PRODUCTION">Production</SelectItem>
+                    <SelectItem value="PAUSE">Pause</SelectItem>
+                    <SelectItem value="LUNCH">Déjeuner</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Recherche</Label>
+                <div className="relative">
+                  <Search className="absolute left-2 top-2.5 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Nom, email..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-8"
                   />
-                  <label
-                    htmlFor={member.id}
-                    className="text-sm font-medium leading-none cursor-pointer"
-                  >
-                    {member.name} (PR: {member.pr || 'N/A'})
-                  </label>
                 </div>
-              ))}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between mt-4 pt-4 border-t">
+              <Button variant="outline" size="sm" onClick={fetchAttendanceRecords}>
+                <Filter className="w-4 h-4 mr-2" />Actualiser
+              </Button>
+              <Button variant="outline" size="sm" onClick={handleExportCSV}>
+                <Download className="w-4 h-4 mr-2" />Exporter CSV
+              </Button>
             </div>
           </CardContent>
         </Card>
 
+        {dailyStats.length > 0 && (
+          <Card className="border-2 border-slate-200">
+            <CardHeader>
+              <CardTitle className="text-base">Visualisation temporelle par jour</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {dailyStats.map(stat => (
+                  <div key={stat.date} className="border rounded-lg p-4 bg-white">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <div className="font-semibold text-slate-800">
+                          {new Date(stat.date).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+                        </div>
+                        <Badge variant="outline" className="text-xs">
+                          {stat.totalRecords} pointages
+                        </Badge>
+                      </div>
+                      <div className="flex gap-2 text-xs">
+                        <span className="text-emerald-600">{stat.onTime} OK</span>
+                        <span className="text-red-600">{stat.late} retards</span>
+                        <span className="text-red-600">{stat.earlyDeparture} départs</span>
+                        {stat.absences > 0 && <span className="text-red-600">{stat.absences} absences</span>}
+                        {stat.overruns > 0 && <span className="text-red-600">{stat.overruns} dépassements</span>}
+                      </div>
+                    </div>
+                    
+                    <DayTimeline records={stat.records} date={stat.date} />
+                  </div>
+                ))}
+              </div>
+              
+              <div className="mt-4 p-4 bg-slate-50 rounded-lg">
+                <h4 className="text-sm font-semibold mb-2">Légende:</h4>
+                <div className="flex flex-wrap gap-4 text-sm">
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 bg-emerald-500 rounded" />
+                    <span>Shift (Travail)</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 bg-yellow-200 rounded" />
+                    <span>Pause</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 bg-amber-500 rounded" />
+                    <span>Lunch</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 bg-red-600 rounded border-2 border-red-700" />
+                    <span>Retard / Départ anticipé / Dépassement</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 bg-red-700 rounded" />
+                    <span>Absence</span>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         <Card className="border-2 border-indigo-200">
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-indigo-500" />
-              Calendrier des présences <span className="text-xs font-normal text-muted-foreground">(Cliquez sur une cellule pour modifier)</span>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center justify-between">
+              <span className="flex items-center gap-2">
+                <Clock className="w-4 h-4 text-indigo-500" />
+                Pointages ({getFilteredRecords().length}) - {formatDisplayDate(selectedDate)}
+              </span>
             </CardTitle>
           </CardHeader>
           <CardContent>
             {loading ? (
-              <div className="text-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-4 border-indigo-200 border-t-indigo-600 mx-auto mb-3"></div>
-                <p className="text-muted-foreground">Chargement...</p>
-              </div>
-            ) : filteredEmployees.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">Chargement...</div>
+            ) : getFilteredRecords().length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
-                <AlertCircle className="w-12 h-12 mx-auto mb-2" />
-                <p>Aucun membre sélectionné</p>
+                <Calendar className="w-12 h-12 mx-auto mb-3 text-muted-foreground/50" />
+                <p>Aucun pointage pour le {formatDisplayDate(selectedDate)}</p>
               </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs border-collapse">
-                  <thead>
-                    <tr className="bg-indigo-50">
-                      <th className="border border-indigo-200 px-2 py-2 font-bold text-left sticky left-0 bg-indigo-50">Nom</th>
-                      <th className="border border-indigo-200 px-2 py-2 font-bold text-center">Projet</th>
-                      <th className="border border-indigo-200 px-2 py-2 font-bold text-center">PR</th>
-                      {dates.map(date => (
-                        <th key={date.toISOString()} className="border border-indigo-200 px-1 py-2 font-semibold text-center min-w-[70px]">
-                          <div className="flex flex-col">
-                            <span className="text-[10px]">{getDayName(date)}</span>
-                            <span>{date.toLocaleDateString('fr-FR').slice(0, 5)}</span>
-                          </div>
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredEmployees.map(emp => (
-                      <tr key={emp.id} className="hover:bg-slate-50">
-                        <td className="border border-slate-200 px-2 py-2 font-medium sticky left-0 bg-white">{emp.name}</td>
-                        <td className="border border-slate-200 px-2 py-2 text-center">{emp.project}</td>
-                        <td className="border border-slate-200 px-2 py-2 text-center font-mono text-xs">{emp.pr}</td>
-                        {dates.map(date => {
-                          const dateKey = formatDateKey(date)
-                          const status = emp.dailyStatus.get(dateKey) || ''
-                          const duration = emp.dailyDuration.get(dateKey) || 0
-                          return (
-                            <td 
-                              key={dateKey} 
-                              className={`border border-slate-200 px-1 py-2 text-center cursor-pointer hover:ring-2 hover:ring-indigo-400 transition-all ${getStatusColor(status)}`}
-                              onClick={() => handleCellClick(emp.id, date, status, duration)}
-                              title="Cliquez pour modifier"
-                            >
-                              <div className="flex flex-col items-center gap-1">
-                                <span className="font-medium">{status || '-'}</span>
-                                {status && duration > 0 && (
-                                  <span className="text-[10px] opacity-75">{duration}h</span>
-                                )}
-                              </div>
-                            </td>
-                          )
-                        })}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="border-2 border-indigo-200">
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <BarChart3 className="w-4 h-4 text-indigo-500" />
-              Résumé par membre
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {employeeSummary.length === 0 ? (
-              <p className="text-center text-muted-foreground py-4">Aucune donnée</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead>
-                    <tr className="bg-indigo-50 border-b">
-                      <th className="px-3 py-2 text-left font-semibold">Membre</th>
-                      <th className="px-3 py-2 text-center font-semibold text-emerald-700">Présents</th>
-                      <th className="px-3 py-2 text-center font-semibold text-red-700">Absences</th>
-                      <th className="px-3 py-2 text-center font-semibold text-yellow-700">Congés</th>
-                      <th className="px-3 py-2 text-center font-semibold text-amber-700">Retards</th>
-                      <th className="px-3 py-2 text-center font-semibold text-orange-700">OFF</th>
-                      <th className="px-3 py-2 text-center font-semibold text-indigo-700">Total jours</th>
+                    <tr className="bg-slate-50 border-b">
+                      <th className="text-left px-3 py-2 font-medium text-muted-foreground">Date</th>
+                      <th className="text-left px-3 py-2 font-medium text-muted-foreground">Membre</th>
+                      <th className="text-left px-3 py-2 font-medium text-muted-foreground">Rôle</th>
+                      <th className="text-center px-2 py-2 font-medium text-muted-foreground">Statut</th>
+                      <th className="text-center px-2 py-2 font-medium text-muted-foreground">Début</th>
+                      <th className="text-center px-2 py-2 font-medium text-muted-foreground">Fin</th>
+                      <th className="text-center px-2 py-2 font-medium text-muted-foreground">Durée</th>
+                      <th className="text-center px-2 py-2 font-medium text-muted-foreground">Performance</th>
+                      <th className="text-left px-2 py-2 font-medium text-muted-foreground">Note</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {employeeSummary.map(summary => (
-                      <tr key={summary.id} className="border-b hover:bg-slate-50">
-                        <td className="px-3 py-2 font-medium">{summary.name}</td>
-                        <td className="px-3 py-2 text-center text-emerald-600 font-semibold">{summary.totalPresent}</td>
-                        <td className="px-3 py-2 text-center text-red-600 font-semibold">{summary.totalAbsent}</td>
-                        <td className="px-3 py-2 text-center text-yellow-600 font-semibold">{summary.totalVac}</td>
-                        <td className="px-3 py-2 text-center text-amber-600 font-semibold">{summary.totalLate}</td>
-                        <td className="px-3 py-2 text-center text-orange-600 font-semibold">{summary.totalOff}</td>
-                        <td className="px-3 py-2 text-center text-indigo-600 font-bold">{summary.totalDays}</td>
+                    {getFilteredRecords().map(record => (
+                      <tr key={record.id} className="border-b hover:bg-slate-50">
+                        <td className="px-3 py-2">
+                          {formatDateInTable(record.startedAt)}
+                        </td>
+                        <td className="px-3 py-2 font-medium">{record.user?.name || 'N/A'}</td>
+                        <td className="px-3 py-2 text-muted-foreground">{record.user?.jobRole || 'N/A'}</td>
+                        <td className="px-2 py-2 text-center">{getStatusBadge(record.status)}</td>
+                        <td className="px-2 py-2 text-center font-mono">{formatTime(record.startedAt)}</td>
+                        <td className="px-2 py-2 text-center font-mono">{formatTime(record.endedAt || '')}</td>
+                        <td className="px-2 py-2 text-center text-muted-foreground">
+                          {record.durationMin ? `${record.durationMin}min` : '—'}
+                        </td>
+                        <td className="px-2 py-2 text-center">{getPerformanceBadge(record)}</td>
+                        <td className="px-2 py-2 text-muted-foreground max-w-[150px] truncate">
+                          {record.note || '—'}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -772,23 +865,7 @@ export default function AdminAttendanceReportsPage() {
             )}
           </CardContent>
         </Card>
-
-        <div className="flex justify-end gap-2">
-          <Button onClick={handleExportExcel} disabled={filteredEmployees.length === 0}>
-            <Download className="w-4 h-4 mr-2" />
-            Export Excel avec résumé
-          </Button>
-        </div>
       </div>
-
-      {/* ✅ DIALOG D'ÉDITION */}
-      <EditAttendanceCellDialog
-        open={editDialogOpen}
-        onClose={() => setEditDialogOpen(false)}
-        onSave={handleSaveCell}
-        editData={currentEditCell}
-        date={currentEditDate}
-      />
     </DashboardLayout>
   )
 }

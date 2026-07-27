@@ -1,8 +1,16 @@
-// src/app/api/projects/performance/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase'
+
+// ✅ FONCTION UTILITAIRE : Extrait YYYY-MM-DD en heure locale (anti-bug fuseau horaire)
+const getLocalDateStr = (dateInput: string | null | undefined) => {
+  if (!dateInput) return null
+  const date = new Date(dateInput)
+  const offset = date.getTimezoneOffset()
+  const localDate = new Date(date.getTime() - (offset * 60 * 1000))
+  return localDate.toISOString().split('T')[0]
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -15,24 +23,22 @@ export async function GET(req: NextRequest) {
     const dateFrom = searchParams.get('dateFrom')
     const dateTo = searchParams.get('dateTo')
     const team = searchParams.get('team') || 'all'
-    const requestedMemberId = searchParams.get('memberId')
+    const requestedMemberId = searchParams.get('memberId') || searchParams.get('memberIds')
     const includeTeam = searchParams.get('includeTeam') === 'true'
 
     const userId = (session.user as any).id
     const userRole = (session.user as any).role
     const isMember = userRole === 'MEMBER'
-    const isAdmin = userRole === 'ADMIN'
 
     let finalMemberId = requestedMemberId
     if (isMember) {
       finalMemberId = userId
     }
 
-    // ✅ CORRECTION 1: Calculer la période basée sur mixedAt/writtenAt, pas createdAt
     const now = new Date()
     let startDate: string, endDate: string
     
-    if (period === 'custom' && dateFrom && dateTo) {
+    if (dateFrom && dateTo) {
       startDate = dateFrom
       endDate = dateTo
     } else if (period === 'today') {
@@ -40,12 +46,12 @@ export async function GET(req: NextRequest) {
       endDate = startDate
     } else if (period === 'week') {
       const day = now.getDay() || 7
-      const monday = new Date(now)
-      monday.setDate(now.getDate() - day + 1)
-      const sunday = new Date(monday)
-      sunday.setDate(monday.getDate() + 6)
-      startDate = monday.toISOString().split('T')[0]
-      endDate = sunday.toISOString().split('T')[0]
+      const sunday = new Date(now)
+  sunday.setDate(now.getDate() - day) // Retour au dimanche
+       const saturday = new Date(sunday)
+  saturday.setDate(sunday.getDate() + 6) // Samedi
+  startDate = sunday.toISOString().split('T')[0]
+  endDate = saturday.toISOString().split('T')[0]
     } else if (period === 'month') {
       startDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
       endDate = now.toISOString().split('T')[0]
@@ -57,15 +63,11 @@ export async function GET(req: NextRequest) {
       endDate = startDate
     }
 
-    console.log('🔍 [PERFORMANCE API] Period:', { period, startDate, endDate, team, finalMemberId })
-
-    // ✅ Objectifs DIFFÉRENCIÉS par rôle
-    const daysInPeriod = Math.max(1, Math.ceil((new Date(endDate).getTime() - new Date(startDate).getTime()) / (1000 * 60 * 60 * 24)))
+    const daysInPeriod = Math.max(1, Math.ceil((new Date(endDate).getTime() - new Date(startDate).getTime()) / (1000 * 60 * 60 * 24)) + 1)
     
     const getObjectiveForRole = (jobRole: string, days: number) => {
       if (jobRole === 'TECH_SON') {
-        const dailyObjective = 5000 / 30
-        return Math.round(dailyObjective * days)
+        return Math.round((5000 / 30) * days)
       }
       return 200 * days
     }
@@ -74,7 +76,6 @@ export async function GET(req: NextRequest) {
       return jobRole === 'TECH_SON' ? 167 : 200
     }
 
-    // ✅ Récupérer TOUS les utilisateurs
     let allUsersQuery = supabaseAdmin
       .from('User')
       .select('id, name, jobRole')
@@ -84,11 +85,9 @@ export async function GET(req: NextRequest) {
 
     const { data: allUsersAll, error: usersAllError } = await allUsersQuery
     if (usersAllError) {
-      console.error('❌ Users all error:', usersAllError)
       return NextResponse.json({ error: usersAllError.message }, { status: 500 })
     }
 
-    // ✅ Filtrer les utilisateurs selon le contexte
     let filteredUsers = allUsersAll || []
 
     if (finalMemberId && finalMemberId !== 'all' && !includeTeam) {
@@ -96,7 +95,6 @@ export async function GET(req: NextRequest) {
     } else if (finalMemberId && finalMemberId !== 'all' && includeTeam) {
       const memberUser = allUsersAll?.find(u => u.id === finalMemberId)
       const memberJobRole = memberUser?.jobRole
-      
       if (memberJobRole === 'REDACTEUR') {
         filteredUsers = filteredUsers.filter(u => u.jobRole === 'REDACTEUR')
       } else if (memberJobRole === 'TECH_SON') {
@@ -108,55 +106,35 @@ export async function GET(req: NextRequest) {
       filteredUsers = filteredUsers.filter(u => u.jobRole === 'TECH_SON')
     }
 
-    console.log('📊 [PERFORMANCE API] Filtered users:', filteredUsers.length, 'Team:', team)
-
-    // ✅ CORRECTION 2: Récupérer TOUS les projets pertinents, puis filtrer côté client
     let projectQuery = supabaseAdmin
       .from('Project')
       .select('*')
-      .eq('status', 'FAIT')
-
-    // ✅ Pour Tech Son: récupérer tous les projets isMixed=true
-    // ✅ Pour Rédacteur: récupérer tous les projets isWritten=true
-    if (team === 'mixage' || filteredUsers.some(u => u.jobRole === 'TECH_SON')) {
-      projectQuery = projectQuery.eq('isMixed', true)
-    } else if (team === 'redaction' || filteredUsers.some(u => u.jobRole === 'REDACTEUR')) {
-      projectQuery = projectQuery.eq('isWritten', true)
-    }
+      .or('isWritten.eq.true,isMixed.eq.true')
 
     const { data: allProjects, error: projectsError } = await projectQuery
     
     if (projectsError) {
-      console.error('❌ Projects error:', projectsError)
       return NextResponse.json({ error: projectsError.message }, { status: 500 })
     }
 
-    console.log('📦 [PERFORMANCE API] All projects:', allProjects?.length)
-
-    // ✅ CORRECTION 3: Filtrer côté client par mixedAt/writtenAt selon le rôle
+    // ✅ FILTRAGE SÉCURISÉ CONTRE LES DÉCALAGES DE FUSEAU HORAIRE
     const filteredProjects = allProjects?.filter((p: any) => {
-      // Déterminer quelle date utiliser selon le rôle du projet
-      const isTechSonProject = p.techSonId && filteredUsers.some(u => u.jobRole === 'TECH_SON' && u.id === p.techSonId)
-      const isRedacteurProject = p.redacteurId && filteredUsers.some(u => u.jobRole === 'REDACTEUR' && u.id === p.redacteurId)
+      const isRedacteurProject = p.isWritten && p.redacteurId && filteredUsers.some(u => u.jobRole === 'REDACTEUR' && u.id === p.redacteurId)
+      const isTechSonProject = p.isMixed && p.techSonId && filteredUsers.some(u => u.jobRole === 'TECH_SON' && u.id === p.techSonId)
       
-      // Utiliser mixedAt pour Tech Son, writtenAt pour Rédacteur
-      const projectDate = isTechSonProject ? p.mixedAt : p.writtenAt || p.createdAt
+      if (!isRedacteurProject && !isTechSonProject) return false
       
-      if (!projectDate) return false
+      const projectDateStr = isRedacteurProject ? p.writtenAt : p.mixedAt
+      if (!projectDateStr) return false
       
-      const projectDateObj = new Date(projectDate)
-      const startDateObj = new Date(startDate)
-      const endDateObj = new Date(endDate)
+      // ✅ Compare les chaînes YYYY-MM-DD en heure locale (plus de décalage d'un jour)
+      const projectLocalDate = getLocalDateStr(projectDateStr)
+      if (!projectLocalDate) return false
       
-      // Comparer les dates (ignorer l'heure)
-      return projectDateObj >= startDateObj && projectDateObj <= endDateObj
+      return projectLocalDate >= startDate && projectLocalDate <= endDate
     }) || []
 
-    console.log('📊 [PERFORMANCE API] Filtered projects:', filteredProjects.length, 'Period:', startDate, 'to', endDate)
-
-    // ✅ Performance par membre
     const tempPerformance = filteredUsers?.map(user => {
-      // ✅ CORRECTION 4: Filtrer les projets par le bon ID selon le rôle
       const userProjects = filteredProjects?.filter((p: any) => {
         if (user.jobRole === 'TECH_SON') {
           return p.techSonId === user.id
@@ -165,14 +143,10 @@ export async function GET(req: NextRequest) {
         }
       }) || []
       
-      // ✅ CORRECTION 5: Arrondir les minutes (entier, sans virgule)
       const totalMinutes = Math.round(userProjects.reduce((sum: number, p: any) => sum + (p.durationMin || 0), 0))
       const projectCount = userProjects.length
-      
       const userObjective = getObjectiveForRole(user.jobRole, daysInPeriod)
-      const ecart = totalMinutes - userObjective
-      const moyenneJour = daysInPeriod > 0 ? Math.round(totalMinutes / daysInPeriod) : 0
-
+      
       return {
         userId: user.id,
         name: user.name,
@@ -181,8 +155,8 @@ export async function GET(req: NextRequest) {
         totalMinutes,
         objectif: userObjective,
         objectifJournalier: getDailyObjectiveForRole(user.jobRole),
-        ecart,
-        moyenneJour,
+        ecart: totalMinutes - userObjective,
+        moyenneJour: daysInPeriod > 0 ? Math.round(totalMinutes / daysInPeriod) : 0,
         projects: userProjects
       }
     }) || []
@@ -219,7 +193,6 @@ export async function GET(req: NextRequest) {
         : 0
     }
 
-    // ✅ CORRECTION 6: Vue détaillée par jour - filtrer par mixedAt/writtenAt
     const daysInPeriodArray: Array<{ date: string; label: string }> = []
     const currentDate = new Date(startDate)
     while (currentDate <= new Date(endDate)) {
@@ -230,12 +203,13 @@ export async function GET(req: NextRequest) {
       currentDate.setDate(currentDate.getDate() + 1)
     }
 
+    // ✅ VUE QUOTIDIENNE SÉCURISÉE
     const dailyPerformance = daysInPeriodArray.map(day => {
-      // ✅ Filtrer les projets par la date DU JOUR (mixedAt pour Tech Son, writtenAt pour Rédacteur)
       const dayProjects = filteredProjects?.filter((p: any) => {
-        const isTechSonProject = p.techSonId && filteredUsers.some(u => u.jobRole === 'TECH_SON')
-        const projectDate = isTechSonProject ? p.mixedAt?.split('T')[0] : p.writtenAt?.split('T')[0]
-        return projectDate === day.date
+        const isRedacteur = p.isWritten && p.redacteurId
+        const dateStr = isRedacteur ? p.writtenAt : p.mixedAt
+        const projectLocalDate = getLocalDateStr(dateStr)
+        return projectLocalDate === day.date
       }) || []
       
       const byMember: Record<string, { minutes: number; count: number }> = {}
@@ -266,10 +240,6 @@ export async function GET(req: NextRequest) {
       alerts.push({ type: 'MODERATE_PERFORMANCE', message: `Performance: ${teamStats.pourcentage}% de l'objectif`, severity: 'warning' })
     }
 
-    const myStats = finalMemberId && includeTeam 
-      ? performanceByMember.find((m: any) => m.userId === finalMemberId) 
-      : null
-
     return NextResponse.json({
       period: { startDate, endDate, days: daysInPeriod },
       performanceByMember,
@@ -284,7 +254,7 @@ export async function GET(req: NextRequest) {
         classement: performanceByMember.slice(0, 3).map((m: any) => ({ nom: m.name, minutes: m.totalMinutes, rang: m.rang }))
       },
       alerts,
-      myStats
+      projects: filteredProjects
     })
   } catch (e: any) {
     console.error('❌ Performance API error:', e)

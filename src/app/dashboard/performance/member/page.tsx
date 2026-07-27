@@ -5,15 +5,30 @@ import { useRouter } from 'next/navigation'
 import DashboardLayout from '@/components/layout/DashboardLayout'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Label } from '@/components/ui/label'
+import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
+import { Calendar as CalendarComponent } from '@/components/ui/calendar'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
   TrendingUp, Activity, Clock, Target, Calendar, Trophy, Medal, Award, User,
-  ArrowUpRight, ArrowDownRight, CheckCircle2
+  ArrowUpRight, ArrowDownRight, CheckCircle2, Filter, Download
 } from 'lucide-react'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+  LabelList
+} from 'recharts'
 
 interface PerformanceData {
   userId: string
@@ -34,15 +49,53 @@ interface DailyData {
   byMember: Record<string, { minutes: number; count: number }>
 }
 
+interface HourlyProjectData {
+  hour: string
+  count: number
+}
+
+type PeriodType = 'day' | 'week' | 'month'
+
+const OBJECTIFS = {
+  day: 200,
+  week: 1000,
+  month: 4000
+}
+
+const MONTHS = [
+  { value: '1', label: 'Janvier' },
+  { value: '2', label: 'Février' },
+  { value: '3', label: 'Mars' },
+  { value: '4', label: 'Avril' },
+  { value: '5', label: 'Mai' },
+  { value: '6', label: 'Juin' },
+  { value: '7', label: 'Juillet' },
+  { value: '8', label: 'Août' },
+  { value: '9', label: 'Septembre' },
+  { value: '10', label: 'Octobre' },
+  { value: '11', label: 'Novembre' },
+  { value: '12', label: 'Décembre' }
+]
+
+const WEEKS = Array.from({ length: 53 }, (_, i) => ({
+  value: (i + 1).toString(),
+  label: `Semaine ${i + 1}`
+}))
+
 export default function MemberPerformance() {
   const { data: session, status } = useSession()
   const router = useRouter()
   const [loading, setLoading] = useState(true)
-  const [period, setPeriod] = useState('week')
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
+  
+  const [period, setPeriod] = useState<PeriodType>('day')
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date())
+  const [selectedWeek, setSelectedWeek] = useState<string>('')
+  const [selectedMonth, setSelectedMonth] = useState<string>('')
+  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear())
+  
   const [performance, setPerformance] = useState<PerformanceData[]>([])
   const [dailyData, setDailyData] = useState<DailyData[]>([])
+  const [hourlyProjects, setHourlyProjects] = useState<HourlyProjectData[]>([])
   const [teamStats, setTeamStats] = useState({ totalMinutes: 0, objectif: 0, pourcentage: 0 })
   const [myPerformance, setMyPerformance] = useState<PerformanceData | null>(null)
   const [myRank, setMyRank] = useState<number>(0)
@@ -58,18 +111,112 @@ export default function MemberPerformance() {
     }
   }, [status, router])
 
+  // ✅ CORRECTION: getDateRange avec date locale (anti-bug fuseau horaire)
+  const getDateRange = useCallback(() => {
+  let startDate: Date
+  let endDate: Date
+
+  if (period === 'day') {
+    startDate = new Date(selectedDate)
+    startDate.setHours(0, 0, 0, 0)
+    endDate = new Date(selectedDate)
+    endDate.setHours(23, 59, 59, 999)
+  } else if (period === 'week') {
+    // ✅ CORRECTION: Semaine commence le DIMANCHE (jour 0), finit le SAMEDI (jour 6)
+    const weekNum = parseInt(selectedWeek)
+    const firstDayOfYear = new Date(selectedYear, 0, 1)
+    
+    // Trouver le premier dimanche de l'année
+    const firstSunday = new Date(firstDayOfYear)
+    const daysToFirstSunday = (7 - firstDayOfYear.getDay()) % 7
+    firstSunday.setDate(firstDayOfYear.getDate() + daysToFirstSunday)
+    
+    // Semaine 1 = première semaine contenant un dimanche
+    const daysToAdd = (weekNum - 1) * 7
+    startDate = new Date(firstSunday)
+    startDate.setDate(firstSunday.getDate() + daysToAdd)
+    startDate.setHours(0, 0, 0, 0)
+    
+    endDate = new Date(startDate)
+    endDate.setDate(endDate.getDate() + 6) // Samedi
+    endDate.setHours(23, 59, 59, 999)
+      } else {
+      const monthStr = selectedMonth || (new Date().getMonth() + 1).toString()
+      const month = parseInt(monthStr) - 1
+      startDate = new Date(selectedYear, month, 1)
+      startDate.setHours(0, 0, 0, 0)
+      endDate = new Date(selectedYear, month + 1, 0)
+      endDate.setHours(23, 59, 59, 999)
+    }
+
+  return { startDate, endDate }
+}, [selectedDate, selectedWeek, selectedMonth, selectedYear, period])
+
+  const getPeriodLabel = useCallback(() => {
+    const { startDate, endDate } = getDateRange()
+    
+    if (period === 'day') {
+      return selectedDate.toLocaleDateString('fr-FR', { 
+        weekday: 'long', 
+        day: 'numeric', 
+        month: 'long', 
+        year: 'numeric' 
+      })
+    } else if (period === 'week') {
+      const startStr = startDate.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
+      const endStr = endDate.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
+      return `Semaine ${selectedWeek} du ${startStr} au ${endStr} ${endDate.getFullYear()}`
+    } else {
+      const monthName = MONTHS.find(m => m.value === selectedMonth)?.label || ''
+      return `${monthName} ${selectedYear}`
+    }
+  }, [selectedDate, selectedWeek, selectedMonth, selectedYear, period, getDateRange])
+
+  const getObjectif = useCallback(() => {
+    return OBJECTIFS[period]
+  }, [period])
+
   const fetchPerformance = useCallback(async () => {
     if (!user?.id) return
 
     try {
       setLoading(true)
       
-      const params = new URLSearchParams({ period })
-      if (period === 'custom' && dateFrom && dateTo) {
-        params.set('dateFrom', dateFrom)
-        params.set('dateTo', dateTo)
+      // ✅ FORÇAGE ABSOLU : On utilise uniquement la date sélectionnée pour jour/semaine/mois
+      const targetDateStr = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDate.getDate()).padStart(2, '0')}`
+      
+      let finalDateFrom = targetDateStr
+      let finalDateTo = targetDateStr
+
+      if (period === 'week' && selectedWeek) {
+        const weekNum = parseInt(selectedWeek)
+        const firstDayOfYear = new Date(selectedYear, 0, 1)
+        const firstSunday = new Date(firstDayOfYear)
+        const daysToFirstSunday = (7 - firstDayOfYear.getDay()) % 7
+        firstSunday.setDate(firstDayOfYear.getDate() + daysToFirstSunday)
+        const daysToAdd = (weekNum - 1) * 7
+        const startDate = new Date(firstSunday)
+        startDate.setDate(firstSunday.getDate() + daysToAdd)
+        const endDate = new Date(startDate)
+        endDate.setDate(endDate.getDate() + 6)
+        finalDateFrom = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`
+        finalDateTo = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`
+      } else if (period === 'month' && selectedMonth) {
+        const month = parseInt(selectedMonth) - 1
+        const startDate = new Date(selectedYear, month, 1)
+        const endDate = new Date(selectedYear, month + 1, 0)
+        finalDateFrom = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`
+        finalDateTo = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`
       }
-      if (isMember) {
+
+      const params = new URLSearchParams({
+        dateFrom: finalDateFrom,
+        dateTo: finalDateTo,
+        period: period,
+        team: 'all'
+      })
+      
+      if (isMember && user.id) {
         params.set('memberId', user.id)
         params.set('includeTeam', 'true')
       }
@@ -80,17 +227,37 @@ export default function MemberPerformance() {
       
       const data = await res.json()
       
-      setPerformance(data.performanceByMember || [])
+      // ✅ Ajuster les objectifs selon la période
+      const adjustedPerformance = (data.performanceByMember || []).map((p: PerformanceData) => ({
+        ...p,
+        objectif: getObjectif()
+      }))
+      
+      setPerformance(adjustedPerformance)
       setDailyData(data.dailyPerformance || [])
-      setTeamStats(data.teamStats || { totalMinutes: 0, objectif: 0, pourcentage: 0 })
+      
+      // ✅ Calculer les projets par heure
+      const hourlyData = calculateHourlyProjects(data.projects || [])
+      setHourlyProjects(hourlyData)
+      
+      // ✅ Calculer les stats d'équipe avec objectif dynamique
+      const totalMinutes = adjustedPerformance.reduce((sum: number, p: PerformanceData) => sum + p.totalMinutes, 0)
+      const totalObjectif = adjustedPerformance.reduce((sum: number, p: PerformanceData) => sum + p.objectif, 0)
+      const pourcentage = totalObjectif > 0 ? Math.round((totalMinutes / totalObjectif) * 100) : 0
+      
+      setTeamStats({
+        totalMinutes,
+        objectif: totalObjectif,
+        pourcentage
+      })
       
       if (isMember && user.id) {
-        const myStats = data.myStats || data.performanceByMember?.find((m: PerformanceData) => m.userId === user.id)
+        const myStats = data.myStats || adjustedPerformance.find((m: PerformanceData) => m.userId === user.id)
         
         if (myStats) {
           setMyPerformance(myStats)
           setMyRank(myStats.rang)
-          setTotalMembers(data.performanceByMember?.length || 0)
+          setTotalMembers(adjustedPerformance.length || 0)
         } else {
           setMyPerformance({
             userId: user.id,
@@ -98,13 +265,13 @@ export default function MemberPerformance() {
             jobRole: user.jobRole || '',
             projectCount: 0,
             totalMinutes: 0,
-            objectif: 1000,
-            ecart: -1000,
+            objectif: getObjectif(),
+            ecart: -getObjectif(),
             moyenneJour: 0,
             rang: 0,
-            totalMembres: data.performanceByMember?.length || 0
+            totalMembres: adjustedPerformance.length || 0
           })
-          setTotalMembers(data.performanceByMember?.length || 0)
+          setTotalMembers(adjustedPerformance.length || 0)
         }
       }
     } catch (err) {
@@ -113,13 +280,32 @@ export default function MemberPerformance() {
     } finally {
       setLoading(false)
     }
-  }, [period, dateFrom, dateTo, isMember, user?.id])
+  }, [selectedDate, selectedWeek, selectedMonth, selectedYear, period, isMember, user?.id, getObjectif])
 
   useEffect(() => {
     if (status === 'authenticated' && user) {
       fetchPerformance()
     }
   }, [status, user, fetchPerformance])
+
+  const calculateHourlyProjects = (projects: any[]): HourlyProjectData[] => {
+    const hourlyCount: HourlyProjectData[] = Array.from({ length: 24 }, (_, i) => ({
+      hour: `${i.toString().padStart(2, '0')}:00`,
+      count: 0
+    }))
+
+    projects.forEach(project => {
+      if (project.writtenAt) {
+        const writtenDate = new Date(project.writtenAt)
+        const hour = writtenDate.getHours()
+        if (hour >= 0 && hour < 24) {
+          hourlyCount[hour].count++
+        }
+      }
+    })
+
+    return hourlyCount
+  }
 
   const getHeatmapColor = (minutes: number) => {
     if (minutes === 0) return 'bg-slate-100'
@@ -135,6 +321,16 @@ export default function MemberPerformance() {
     return `${rang}ème`
   }
 
+  // ✅ Données pour le graphique en barres
+  const barChartData = useMemo(() => {
+    return performance.map(p => ({
+      name: p.name.split(' ')[0],
+      minutes: p.totalMinutes,
+      objectif: p.objectif,
+      projects: p.projectCount
+    }))
+  }, [performance])
+
   if (status === 'loading') {
     return (
       <DashboardLayout>
@@ -148,6 +344,9 @@ export default function MemberPerformance() {
   if (status === 'unauthenticated' || !user) {
     return null
   }
+
+  const periodLabel = getPeriodLabel()
+  const objectif = getObjectif()
 
   return (
     <DashboardLayout>
@@ -165,41 +364,121 @@ export default function MemberPerformance() {
               myPerformance?.jobRole === 'TECH_SON' ? 'Mixage' : 
               myPerformance?.jobRole === 'NARRATEUR' ? 'Narration' : 
               'Performance'
-            } • {
-              period === 'week' ? 'Cette semaine' : 
-              period === 'month' ? 'Ce mois' : 
-              period === 'year' ? 'Cette année' : 
-              'Personnalisé'
-            }
+            } • {periodLabel}
           </p>
         </div>
 
-        {/* FILTRES */}
-        <div className="flex flex-wrap gap-3">
-          <Select value={period} onValueChange={setPeriod}>
-            <SelectTrigger className="w-40">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="today">Aujourd'hui</SelectItem>
-              <SelectItem value="week">Cette semaine</SelectItem>
-              <SelectItem value="month">Ce mois</SelectItem>
-              <SelectItem value="year">Cette année</SelectItem>
-              <SelectItem value="custom">Personnalisé</SelectItem>
-            </SelectContent>
-          </Select>
+        {/* FILTRES ADAPTATIFS */}
+        <Card className="border-2 border-indigo-200">
+          <CardContent className="pt-6">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="space-y-2">
+                <Label className="text-sm text-slate-600">Période</Label>
+                              <Select value={period} onValueChange={(v: PeriodType) => {
+                  setPeriod(v)
+                  if (v === 'day') setSelectedDate(new Date())
+                  else if (v === 'week') {
+                    setSelectedWeek('')
+                    setSelectedYear(new Date().getFullYear())
+                  }
+                  else if (v === 'month') {
+                    setSelectedMonth((new Date().getMonth() + 1).toString())
+                    setSelectedYear(new Date().getFullYear())
+                  }
+                }}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="day">Jour (200 min)</SelectItem>
+                    <SelectItem value="week">Semaine (1000 min)</SelectItem>
+                    <SelectItem value="month">Mois (4000 min)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
 
-          {period === 'custom' && (
-            <>
-              <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="border rounded px-2 py-2 text-sm" />
-              <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="border rounded px-2 py-2 text-sm" />
-            </>
-          )}
+              <div className="space-y-2">
+                <Label className="text-sm text-slate-600">
+                  {period === 'day' ? 'Date' : period === 'week' ? 'Numéro de semaine' : 'Mois'}
+                </Label>
+                
+                {period === 'day' && (
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" className="w-full justify-start text-left font-normal">
+                        <Calendar className="w-4 h-4 mr-2" />
+                        {selectedDate ? selectedDate.toLocaleDateString('fr-FR') : 'Choisir une date'}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0">
+                      <CalendarComponent
+                        mode="single"
+                        selected={selectedDate}
+                        onSelect={(date) => date && setSelectedDate(date)}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+                )}
+                
+                {period === 'week' && (
+                  <Select value={selectedWeek} onValueChange={setSelectedWeek}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Sélectionner une semaine" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {WEEKS.map(week => (
+                        <SelectItem key={week.value} value={week.value}>
+                          {week.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                
+                {period === 'month' && (
+                  <Select value={selectedMonth} onValueChange={setSelectedMonth}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Sélectionner un mois" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {MONTHS.map(month => (
+                        <SelectItem key={month.value} value={month.value}>
+                          {month.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
 
-          <button onClick={fetchPerformance} disabled={isLoading} className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 disabled:opacity-50">
-            {isLoading ? 'Chargement...' : 'Actualiser'}
-          </button>
-        </div>
+              {(period === 'week' || period === 'month') && (
+                <div className="space-y-2">
+                  <Label className="text-sm text-slate-600">Année</Label>
+                  <Select value={selectedYear.toString()} onValueChange={(v) => setSelectedYear(parseInt(v))}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {[2024, 2025, 2026, 2027].map(year => (
+                        <SelectItem key={year} value={year.toString()}>
+                          {year}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              <div className="flex items-end">
+                <Button onClick={fetchPerformance} disabled={isLoading} className="gap-2">
+                  <Filter className="w-4 h-4" />
+                  {isLoading ? 'Chargement...' : 'Actualiser'}
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* STATS */}
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -219,14 +498,14 @@ export default function MemberPerformance() {
             <CardHeader className="pb-2">
               <CardTitle className="text-sm text-slate-500 flex items-center gap-2">
                 <Target className="w-4 h-4" />
-                Objectif {myPerformance?.jobRole === 'TECH_SON' && '(Mixage)'}
+                Objectif
               </CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-2xl font-bold">
-                {myPerformance?.objectif || 0} min
+                {objectif} min
                 <span className="text-xs text-slate-400 block mt-1">
-                  {myPerformance?.jobRole === 'TECH_SON' ? '167 min/jour' : '200 min/jour'}
+                  {period === 'day' ? 'quotidien' : period === 'week' ? 'hebdomadaire' : 'mensuel'}
                 </span>
               </p>
             </CardContent>
@@ -260,6 +539,97 @@ export default function MemberPerformance() {
               <p className="text-2xl font-bold">
                 {getRankBadge(myRank)} <span className="text-sm text-slate-400">/ {totalMembers}</span>
               </p>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* GRAPHIQUES */}
+        <div className="grid lg:grid-cols-2 gap-6">
+          {/* Performance par Membre */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Trophy className="w-4 h-4 text-indigo-600" />
+                Classement de l'équipe - Objectif: {objectif} min
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={barChartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis dataKey="name" stroke="#64748b" fontSize={12} />
+                  <YAxis stroke="#64748b" fontSize={12} />
+                  <Tooltip 
+                    contentStyle={{ 
+                      backgroundColor: '#fff', 
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '8px',
+                      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                    }}
+                  />
+                  <Legend />
+                  <Bar dataKey="minutes" fill="#4f46e5" name="Minutes" radius={[4, 4, 0, 0]}>
+                    <LabelList 
+                      dataKey="minutes" 
+                      position="top" 
+                      fill="#1e293b"
+                      fontSize={12}
+                      fontWeight="bold"
+                    />
+                  </Bar>
+                  <Bar dataKey="objectif" fill="#cbd5e1" name="Objectif" radius={[4, 4, 0, 0]}>
+                    <LabelList 
+                      dataKey="objectif" 
+                      position="top" 
+                      fill="#64748b"
+                      fontSize={12}
+                      fontWeight="bold"
+                    />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+
+          {/* Projets Rédaction Complétés par Heure */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Clock className="w-4 h-4 text-indigo-600" />
+                Projets Rédaction Complétés par Heure
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={hourlyProjects} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis 
+                    dataKey="hour" 
+                    stroke="#64748b" 
+                    fontSize={10}
+                    interval={2}
+                  />
+                  <YAxis stroke="#64748b" fontSize={12} />
+                  <Tooltip 
+                    contentStyle={{ 
+                      backgroundColor: '#fff', 
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '8px',
+                      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                    }}
+                    formatter={(value: number) => [`${value} projet(s)`, 'Projets rédaction']}
+                  />
+                  <Bar dataKey="count" fill="#10b981" name="Projets" radius={[4, 4, 0, 0]}>
+                    <LabelList 
+                      dataKey="count" 
+                      position="top" 
+                      fill="#1e293b"
+                      fontSize={11}
+                      fontWeight="bold"
+                    />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
             </CardContent>
           </Card>
         </div>
@@ -299,7 +669,7 @@ export default function MemberPerformance() {
               <div className="grid grid-cols-3 gap-4 pt-4">
                 <div className="text-center p-3 bg-slate-50 rounded-lg">
                   <p className="text-xs text-slate-500 mb-1">Objectif</p>
-                  <p className="text-lg font-bold text-slate-700">{myPerformance?.objectif || 0} min</p>
+                  <p className="text-lg font-bold text-slate-700">{objectif} min</p>
                 </div>
                 <div className="text-center p-3 bg-indigo-50 rounded-lg">
                   <p className="text-xs text-indigo-500 mb-1">Réalisé</p>
@@ -321,7 +691,7 @@ export default function MemberPerformance() {
                  teamStats.pourcentage >= 80 ? <TrendingUp className="w-5 h-5" /> :
                  <Activity className="w-5 h-5" />}
                 <span className="font-medium text-sm">
-                  {teamStats.pourcentage >= 100 ? '🎉 Objectif atteint ! Félicitations !' :
+                  {teamStats.pourcentage >= 100 ? ' Objectif atteint ! Félicitations !' :
                    teamStats.pourcentage >= 80 ? '⚠️ Presque là ! Encore un effort !' :
                    teamStats.pourcentage >= 50 ? '📈 En bonne voie, continuez !' :
                    '🔴 Retard important, motivez-vous !'}
@@ -466,7 +836,7 @@ export default function MemberPerformance() {
               <div className="w-4 h-4 bg-red-200 rounded" /><span>&lt;100</span>
             </div>
             <div className="flex items-center gap-2">
-              <div className="w-4 h-4 bg-orange-200 rounded" /><span>100-200 (objectif)</span>
+              <div className="w-4 h-4 bg-orange-200 rounded" /><span>100-200</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-4 h-4 bg-emerald-200 rounded" /><span>&gt;200</span>
