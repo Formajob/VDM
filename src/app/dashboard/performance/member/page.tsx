@@ -15,7 +15,7 @@ import { Calendar as CalendarComponent } from '@/components/ui/calendar'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
   TrendingUp, Activity, Clock, Target, Calendar, Trophy, Medal, Award, User,
-  ArrowUpRight, ArrowDownRight, CheckCircle2, Filter, Download
+  ArrowUpRight, ArrowDownRight, CheckCircle2, Filter
 } from 'lucide-react'
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import {
@@ -27,6 +27,8 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
+  LineChart,
+  Line,
   LabelList
 } from 'recharts'
 
@@ -49,9 +51,17 @@ interface DailyData {
   byMember: Record<string, { minutes: number; count: number }>
 }
 
-interface HourlyProjectData {
-  hour: string
-  count: number
+interface DayOfWeekData {
+  day: string
+  dayShort: string
+  minutes: number
+}
+
+interface DailyTrendData {
+  date: string
+  label: string
+  minutes: number
+  objectif: number
 }
 
 type PeriodType = 'day' | 'week' | 'month'
@@ -95,7 +105,8 @@ export default function MemberPerformance() {
   
   const [performance, setPerformance] = useState<PerformanceData[]>([])
   const [dailyData, setDailyData] = useState<DailyData[]>([])
-  const [hourlyProjects, setHourlyProjects] = useState<HourlyProjectData[]>([])
+  const [minutesByDayOfWeek, setMinutesByDayOfWeek] = useState<DayOfWeekData[]>([])
+  const [dailyTrend, setDailyTrend] = useState<DailyTrendData[]>([])
   const [teamStats, setTeamStats] = useState({ totalMinutes: 0, objectif: 0, pourcentage: 0 })
   const [myPerformance, setMyPerformance] = useState<PerformanceData | null>(null)
   const [myRank, setMyRank] = useState<number>(0)
@@ -111,36 +122,34 @@ export default function MemberPerformance() {
     }
   }, [status, router])
 
-  // ✅ CORRECTION: getDateRange avec date locale (anti-bug fuseau horaire)
   const getDateRange = useCallback(() => {
-  let startDate: Date
-  let endDate: Date
+    let startDate: Date
+    let endDate: Date
 
-  if (period === 'day') {
-    startDate = new Date(selectedDate)
-    startDate.setHours(0, 0, 0, 0)
-    endDate = new Date(selectedDate)
-    endDate.setHours(23, 59, 59, 999)
-  } else if (period === 'week') {
-    // ✅ CORRECTION: Semaine commence le DIMANCHE (jour 0), finit le SAMEDI (jour 6)
-    const weekNum = parseInt(selectedWeek)
-    const firstDayOfYear = new Date(selectedYear, 0, 1)
-    
-    // Trouver le premier dimanche de l'année
-    const firstSunday = new Date(firstDayOfYear)
-    const daysToFirstSunday = (7 - firstDayOfYear.getDay()) % 7
-    firstSunday.setDate(firstDayOfYear.getDate() + daysToFirstSunday)
-    
-    // Semaine 1 = première semaine contenant un dimanche
-    const daysToAdd = (weekNum - 1) * 7
-    startDate = new Date(firstSunday)
-    startDate.setDate(firstSunday.getDate() + daysToAdd)
-    startDate.setHours(0, 0, 0, 0)
-    
-    endDate = new Date(startDate)
-    endDate.setDate(endDate.getDate() + 6) // Samedi
-    endDate.setHours(23, 59, 59, 999)
-      } else {
+    if (period === 'day') {
+      startDate = new Date(selectedDate)
+      startDate.setHours(0, 0, 0, 0)
+      endDate = new Date(selectedDate)
+      endDate.setHours(23, 59, 59, 999)
+    } else if (period === 'week') {
+      // ✅ CORRECTION: Semaine commence le DIMANCHE (jour 0), finit le SAMEDI (jour 6)
+      const weekNum = parseInt(selectedWeek)
+      const firstDayOfYear = new Date(selectedYear, 0, 1)
+      
+      const firstSunday = new Date(firstDayOfYear)
+      const daysToFirstSunday = (7 - firstDayOfYear.getDay()) % 7
+      firstSunday.setDate(firstDayOfYear.getDate() + daysToFirstSunday)
+      
+      const daysToAdd = (weekNum - 1) * 7
+      startDate = new Date(firstSunday)
+      startDate.setDate(firstSunday.getDate() + daysToAdd)
+      startDate.setHours(0, 0, 0, 0)
+      
+      endDate = new Date(startDate)
+      endDate.setDate(endDate.getDate() + 6)
+      endDate.setHours(23, 59, 59, 999)
+    } else {
+      // ✅ Si selectedMonth est vide, utiliser le mois courant
       const monthStr = selectedMonth || (new Date().getMonth() + 1).toString()
       const month = parseInt(monthStr) - 1
       startDate = new Date(selectedYear, month, 1)
@@ -149,8 +158,8 @@ export default function MemberPerformance() {
       endDate.setHours(23, 59, 59, 999)
     }
 
-  return { startDate, endDate }
-}, [selectedDate, selectedWeek, selectedMonth, selectedYear, period])
+    return { startDate, endDate }
+  }, [selectedDate, selectedWeek, selectedMonth, selectedYear, period])
 
   const getPeriodLabel = useCallback(() => {
     const { startDate, endDate } = getDateRange()
@@ -191,14 +200,18 @@ export default function MemberPerformance() {
       if (period === 'week' && selectedWeek) {
         const weekNum = parseInt(selectedWeek)
         const firstDayOfYear = new Date(selectedYear, 0, 1)
+        
         const firstSunday = new Date(firstDayOfYear)
         const daysToFirstSunday = (7 - firstDayOfYear.getDay()) % 7
         firstSunday.setDate(firstDayOfYear.getDate() + daysToFirstSunday)
+        
         const daysToAdd = (weekNum - 1) * 7
         const startDate = new Date(firstSunday)
         startDate.setDate(firstSunday.getDate() + daysToAdd)
+        
         const endDate = new Date(startDate)
         endDate.setDate(endDate.getDate() + 6)
+        
         finalDateFrom = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`
         finalDateTo = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`
       } else if (period === 'month' && selectedMonth) {
@@ -236,9 +249,14 @@ export default function MemberPerformance() {
       setPerformance(adjustedPerformance)
       setDailyData(data.dailyPerformance || [])
       
-      // ✅ Calculer les projets par heure
-      const hourlyData = calculateHourlyProjects(data.projects || [])
-      setHourlyProjects(hourlyData)
+      // ✅ Calculer les minutes par jour de la semaine
+      
+      const dayOfWeekData = calculateMinutesByDayOfWeek(data.projects || [])
+      // ✅ Objectif quotidien fixe à 200 min pour le graphique d'évolution quotidienne
+const trendData = calculateDailyTrend(data.dailyPerformance || [], 200)
+      
+      setMinutesByDayOfWeek(dayOfWeekData)
+      setDailyTrend(trendData)
       
       // ✅ Calculer les stats d'équipe avec objectif dynamique
       const totalMinutes = adjustedPerformance.reduce((sum: number, p: PerformanceData) => sum + p.totalMinutes, 0)
@@ -288,23 +306,40 @@ export default function MemberPerformance() {
     }
   }, [status, user, fetchPerformance])
 
-  const calculateHourlyProjects = (projects: any[]): HourlyProjectData[] => {
-    const hourlyCount: HourlyProjectData[] = Array.from({ length: 24 }, (_, i) => ({
-      hour: `${i.toString().padStart(2, '0')}:00`,
-      count: 0
-    }))
+  const calculateMinutesByDayOfWeek = (projects: any[]): DayOfWeekData[] => {
+    const daysOfWeek: DayOfWeekData[] = [
+      { day: 'Lundi', dayShort: 'Lun', minutes: 0 },
+      { day: 'Mardi', dayShort: 'Mar', minutes: 0 },
+      { day: 'Mercredi', dayShort: 'Mer', minutes: 0 },
+      { day: 'Jeudi', dayShort: 'Jeu', minutes: 0 },
+      { day: 'Vendredi', dayShort: 'Ven', minutes: 0 },
+      { day: 'Samedi', dayShort: 'Sam', minutes: 0 },
+      { day: 'Dimanche', dayShort: 'Dim', minutes: 0 }
+    ]
 
     projects.forEach(project => {
-      if (project.writtenAt) {
-        const writtenDate = new Date(project.writtenAt)
-        const hour = writtenDate.getHours()
-        if (hour >= 0 && hour < 24) {
-          hourlyCount[hour].count++
+      const dateStr = project.isWritten ? project.writtenAt : project.mixedAt
+      if (dateStr) {
+        const projectDate = new Date(dateStr)
+        const dayOfWeek = projectDate.getDay()
+        const index = dayOfWeek === 0 ? 6 : dayOfWeek - 1
+        
+        if (index >= 0 && index < 7) {
+          daysOfWeek[index].minutes += project.durationMin || 0
         }
       }
     })
 
-    return hourlyCount
+    return daysOfWeek
+  }
+
+  const calculateDailyTrend = (dailyData: DailyData[], objectif: number): DailyTrendData[] => {
+    return dailyData.map(d => ({
+      date: d.date,
+      label: d.label,
+      minutes: Object.values(d.byMember).reduce((sum, member) => sum + member.minutes, 0),
+      objectif: objectif
+    }))
   }
 
   const getHeatmapColor = (minutes: number) => {
@@ -374,7 +409,7 @@ export default function MemberPerformance() {
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="space-y-2">
                 <Label className="text-sm text-slate-600">Période</Label>
-                              <Select value={period} onValueChange={(v: PeriodType) => {
+                <Select value={period} onValueChange={(v: PeriodType) => {
                   setPeriod(v)
                   if (v === 'day') setSelectedDate(new Date())
                   else if (v === 'week') {
@@ -591,23 +626,22 @@ export default function MemberPerformance() {
             </CardContent>
           </Card>
 
-          {/* Projets Rédaction Complétés par Heure */}
+          {/* Minutes par Jour de la Semaine */}
           <Card>
             <CardHeader>
               <CardTitle className="text-sm flex items-center gap-2">
-                <Clock className="w-4 h-4 text-indigo-600" />
-                Projets Rédaction Complétés par Heure
+                <Calendar className="w-4 h-4 text-indigo-600" />
+                Minutes par Jour de la Semaine
               </CardTitle>
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={hourlyProjects} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                <BarChart data={minutesByDayOfWeek} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                   <XAxis 
-                    dataKey="hour" 
+                    dataKey="dayShort" 
                     stroke="#64748b" 
-                    fontSize={10}
-                    interval={2}
+                    fontSize={12}
                   />
                   <YAxis stroke="#64748b" fontSize={12} />
                   <Tooltip 
@@ -617,15 +651,19 @@ export default function MemberPerformance() {
                       borderRadius: '8px',
                       boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
                     }}
-                    formatter={(value: number) => [`${value} projet(s)`, 'Projets rédaction']}
+                    formatter={(value: number, name: string, props: any) => [
+                      `${Math.round(value as number)} min`,
+                      props.payload.day
+                    ]}
                   />
-                  <Bar dataKey="count" fill="#10b981" name="Projets" radius={[4, 4, 0, 0]}>
+                  <Bar dataKey="minutes" fill="#10b981" name="Minutes" radius={[4, 4, 0, 0]}>
                     <LabelList 
-                      dataKey="count" 
+                      dataKey="minutes" 
                       position="top" 
                       fill="#1e293b"
-                      fontSize={11}
+                      fontSize={12}
                       fontWeight="bold"
+                      formatter={(value: number) => `${Math.round(value)} min`}
                     />
                   </Bar>
                 </BarChart>
@@ -633,6 +671,57 @@ export default function MemberPerformance() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Évolution Quotidienne */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-indigo-600" />
+              Évolution Quotidienne - Objectif: {objectif} min
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={dailyTrend} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis 
+                  dataKey="label" 
+                  stroke="#64748b" 
+                  fontSize={12}
+                />
+                <YAxis stroke="#64748b" fontSize={12} />
+                <Tooltip 
+                  contentStyle={{ 
+                    backgroundColor: '#fff', 
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px',
+                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                  }}
+                  formatter={(value: number) => [`${Math.round(value)} min`, 'Minutes']}
+                />
+                <Legend />
+                <Line 
+                  type="monotone" 
+                  dataKey="minutes" 
+                  stroke="#4f46e5" 
+                  strokeWidth={3}
+                  dot={{ fill: '#4f46e5', r: 4 }}
+                  activeDot={{ r: 6 }}
+                  name="Minutes réalisées"
+                />
+                <Line 
+                  type="monotone" 
+                  dataKey="objectif" 
+                  stroke="#cbd5e1" 
+                  strokeWidth={2}
+                  strokeDasharray="5 5"
+                  dot={false}
+                  name="Objectif quotidien"
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
 
         {/* PROGRESSION */}
         <Card className="border-indigo-200 shadow-lg">
@@ -691,7 +780,7 @@ export default function MemberPerformance() {
                  teamStats.pourcentage >= 80 ? <TrendingUp className="w-5 h-5" /> :
                  <Activity className="w-5 h-5" />}
                 <span className="font-medium text-sm">
-                  {teamStats.pourcentage >= 100 ? ' Objectif atteint ! Félicitations !' :
+                  {teamStats.pourcentage >= 100 ? '🎉 Objectif atteint ! Félicitations !' :
                    teamStats.pourcentage >= 80 ? '⚠️ Presque là ! Encore un effort !' :
                    teamStats.pourcentage >= 50 ? '📈 En bonne voie, continuez !' :
                    '🔴 Retard important, motivez-vous !'}

@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
     // ✅ Calculer la période
     const now = new Date()
     let startDate: string, endDate: string
-    
+
     if (period === 'custom' && dateFrom && dateTo) {
       startDate = dateFrom
       endDate = dateTo
@@ -84,7 +84,11 @@ export async function GET(req: NextRequest) {
       retourQC: alertsData.data?.filter(p => p.status === 'RETOUR_REDACTION' || p.status === 'RETOUR_MIXAGE') || []
     }
 
-    // ✅ PERFORMANCE PAR ÉQUIPE — Statut "FAIT" pour Rédaction/Studio
+    // ✅ PERFORMANCE PAR ÉQUIPE — CORRIGÉ
+    // On se base désormais sur isWritten/writtenAt (rédaction) et isMixed/mixedAt (mixage),
+    // exactement comme dans /api/performance, au lieu de createdAt + workflowStep/status
+    // qui excluait à tort tout projet créé un mois avant d'être terminé, et ratait les
+    // combinaisons workflowStep/status réellement utilisées en base (LIVRAISON+FAIT, TERMINE+FAIT, etc.)
     const { data: allUsers } = await supabaseAdmin
       .from('User')
       .select('id, name, jobRole')
@@ -93,22 +97,36 @@ export async function GET(req: NextRequest) {
 
     const { data: performanceProjects } = await supabaseAdmin
       .from('Project')
-      .select('id, durationMin, redacteurId, workflowStep, status, createdAt')
-      .or(`and(workflowStep.eq.REDACTION,status.eq.FAIT),and(workflowStep.eq.STUDIO,status.eq.FAIT),and(workflowStep.eq.LIVRAISON,status.eq.LIVRE)`)
-      .gte('createdAt', startDate)
-      .lte('createdAt', endDate)
+      .select('id, durationMin, redacteurId, techSonId, isWritten, writtenAt, isMixed, mixedAt')
+      .or(`and(isWritten.eq.true,writtenAt.gte.${startDate},writtenAt.lte.${endDate}),and(isMixed.eq.true,mixedAt.gte.${startDate},mixedAt.lte.${endDate})`)
 
     const performanceByRole: Record<string, { count: number; minutes: number; members: Record<string, number> }> = {}
-    
+
     performanceProjects?.forEach(p => {
-      let jobRole: string | undefined
-      if (p.workflowStep === 'REDACTION' && p.status === 'FAIT') jobRole = 'REDACTEUR'
-      else if (p.workflowStep === 'STUDIO' && p.status === 'FAIT') jobRole = 'TECH_SON'
-      else if (p.workflowStep === 'LIVRAISON' && p.status === 'LIVRE') jobRole = 'LIVREUR'
-      
-      if (jobRole) {
-        const user = allUsers?.find(u => u.id === p.redacteurId)
+      // Un projet peut compter deux fois dans la période : une fois côté rédaction
+      // (si écrit dans la période) et une fois côté mixage (si mixé dans la période).
+      // Ce sont deux activités distinctes réalisées par deux personnes différentes.
+
+      if (p.isWritten && p.writtenAt && p.writtenAt >= startDate && p.writtenAt <= endDate) {
+        const user = allUsers?.find(u => u.id === p.redacteurId && u.jobRole === 'REDACTEUR')
         if (user) {
+          const jobRole = 'REDACTEUR'
+          if (!performanceByRole[jobRole]) {
+            performanceByRole[jobRole] = { count: 0, minutes: 0, members: {} }
+          }
+          performanceByRole[jobRole].count += 1
+          performanceByRole[jobRole].minutes += p.durationMin || 0
+          if (!performanceByRole[jobRole].members[user.name]) {
+            performanceByRole[jobRole].members[user.name] = 0
+          }
+          performanceByRole[jobRole].members[user.name] += p.durationMin || 0
+        }
+      }
+
+      if (p.isMixed && p.mixedAt && p.mixedAt >= startDate && p.mixedAt <= endDate) {
+        const user = allUsers?.find(u => u.id === p.techSonId && u.jobRole === 'TECH_SON')
+        if (user) {
+          const jobRole = 'TECH_SON'
           if (!performanceByRole[jobRole]) {
             performanceByRole[jobRole] = { count: 0, minutes: 0, members: {} }
           }
@@ -123,7 +141,7 @@ export async function GET(req: NextRequest) {
     })
 
     const teamPerformance = Object.entries(performanceByRole).map(([role, data]) => {
-      const topMember = Object.entries(data.members).sort(([,a], [,b]) => b - a)[0]
+      const topMember = Object.entries(data.members).sort(([, a], [, b]) => b - a)[0]
       const avgMinutes = data.count > 0 ? Math.round(data.minutes / data.count) : 0
       return {
         role,
@@ -143,12 +161,12 @@ export async function GET(req: NextRequest) {
         .select('durationMin, createdAt, workflowStep, status')
         .gte('createdAt', `${year}-01-01`)
         .lte('createdAt', `${year}-12-31`)
-      
+
       const months = Array.from({ length: 12 }, (_, i) => {
         const m = String(i + 1).padStart(2, '0')
         return { month: `${year}-${m}`, count: 0, minutes: 0 }
       })
-      
+
       yearProjects?.forEach(p => {
         const monthKey = p.createdAt?.split('T')[0].slice(0, 7)
         const monthIdx = months.findIndex(m => m.month === monthKey)

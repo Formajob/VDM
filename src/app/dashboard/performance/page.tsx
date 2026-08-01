@@ -1,4 +1,4 @@
-'use client'
+ 'use client'
 
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useSession } from 'next-auth/react'
@@ -58,9 +58,17 @@ interface DailyData {
   byMember: Record<string, { minutes: number; count: number }>
 }
 
-interface HourlyProjectData {
-  hour: string
-  count: number
+interface DayOfWeekData {
+  day: string
+  dayShort: string
+  minutes: number
+}
+
+interface DailyTrendData {
+  date: string
+  label: string
+  minutes: number
+  objectif: number
 }
 
 type PeriodType = 'day' | 'week' | 'month'
@@ -108,7 +116,8 @@ export default function PerformanceDashboard() {
   
   const [performance, setPerformance] = useState<PerformanceData[]>([])
   const [dailyData, setDailyData] = useState<DailyData[]>([])
-  const [hourlyProjects, setHourlyProjects] = useState<HourlyProjectData[]>([])
+  const [minutesByDayOfWeek, setMinutesByDayOfWeek] = useState<DayOfWeekData[]>([])
+  const [dailyTrend, setDailyTrend] = useState<DailyTrendData[]>([])
   const [stats, setStats] = useState({ totalProjects: 0, totalMinutes: 0, moyenneJour: 0, memberCount: 0 })
   const [alerts, setAlerts] = useState<Alert[]>([])
   const [teamStats, setTeamStats] = useState({ totalMinutes: 0, objectif: 0, pourcentage: 0 })
@@ -117,35 +126,34 @@ export default function PerformanceDashboard() {
   const user = sessionData?.user as any
   const isAdmin = user?.role === 'ADMIN'
 
- const getDateRange = useCallback(() => {
-  let startDate: Date
-  let endDate: Date
+  const getDateRange = useCallback(() => {
+    let startDate: Date
+    let endDate: Date
 
-  if (period === 'day') {
-    startDate = new Date(selectedDate)
-    startDate.setHours(0, 0, 0, 0)
-    endDate = new Date(selectedDate)
-    endDate.setHours(23, 59, 59, 999)
-  } else if (period === 'week') {
-    // ✅ CORRECTION: Semaine commence le DIMANCHE (jour 0), finit le SAMEDI (jour 6)
-    const weekNum = parseInt(selectedWeek)
-    const firstDayOfYear = new Date(selectedYear, 0, 1)
-    
-    // Trouver le premier dimanche de l'année
-    const firstSunday = new Date(firstDayOfYear)
-    const daysToFirstSunday = (7 - firstDayOfYear.getDay()) % 7
-    firstSunday.setDate(firstDayOfYear.getDate() + daysToFirstSunday)
-    
-    // Semaine 1 = première semaine contenant un dimanche
-    const daysToAdd = (weekNum - 1) * 7
-    startDate = new Date(firstSunday)
-    startDate.setDate(firstSunday.getDate() + daysToAdd)
-    startDate.setHours(0, 0, 0, 0)
-    
-    endDate = new Date(startDate)
-    endDate.setDate(endDate.getDate() + 6) // Samedi
-    endDate.setHours(23, 59, 59, 999)
-      } else {
+    if (period === 'day') {
+      startDate = new Date(selectedDate)
+      startDate.setHours(0, 0, 0, 0)
+      endDate = new Date(selectedDate)
+      endDate.setHours(23, 59, 59, 999)
+    } else if (period === 'week') {
+      // ✅ CORRECTION: Semaine commence le DIMANCHE (jour 0), finit le SAMEDI (jour 6)
+      const weekNum = parseInt(selectedWeek)
+      const firstDayOfYear = new Date(selectedYear, 0, 1)
+      
+      const firstSunday = new Date(firstDayOfYear)
+      const daysToFirstSunday = (7 - firstDayOfYear.getDay()) % 7
+      firstSunday.setDate(firstDayOfYear.getDate() + daysToFirstSunday)
+      
+      const daysToAdd = (weekNum - 1) * 7
+      startDate = new Date(firstSunday)
+      startDate.setDate(firstSunday.getDate() + daysToAdd)
+      startDate.setHours(0, 0, 0, 0)
+      
+      endDate = new Date(startDate)
+      endDate.setDate(endDate.getDate() + 6)
+      endDate.setHours(23, 59, 59, 999)
+    } else {
+      // ✅ Si selectedMonth est vide, utiliser le mois courant
       const monthStr = selectedMonth || (new Date().getMonth() + 1).toString()
       const month = parseInt(monthStr) - 1
       startDate = new Date(selectedYear, month, 1)
@@ -154,8 +162,8 @@ export default function PerformanceDashboard() {
       endDate.setHours(23, 59, 59, 999)
     }
 
-  return { startDate, endDate }
-}, [selectedDate, selectedWeek, selectedMonth, selectedYear, period])
+    return { startDate, endDate }
+  }, [selectedDate, selectedWeek, selectedMonth, selectedYear, period])
 
   const getPeriodLabel = useCallback(() => {
     const { startDate, endDate } = getDateRange()
@@ -206,24 +214,26 @@ export default function PerformanceDashboard() {
       setLoading(true)
       
       // ✅ FORÇAGE ABSOLU : On utilise uniquement la date sélectionnée pour jour/semaine/mois
-      // Pour 'day', dateFrom et dateTo sont strictement identiques
-      // ✅ APRÈS (date locale, sans décalage)
-const targetDateStr = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDate.getDate()).padStart(2, '0')}`
+      const targetDateStr = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDate.getDate()).padStart(2, '0')}`
       
       let finalDateFrom = targetDateStr
       let finalDateTo = targetDateStr
 
-         if (period === 'week' && selectedWeek) {
+      if (period === 'week' && selectedWeek) {
         const weekNum = parseInt(selectedWeek)
         const firstDayOfYear = new Date(selectedYear, 0, 1)
+        
         const firstSunday = new Date(firstDayOfYear)
         const daysToFirstSunday = (7 - firstDayOfYear.getDay()) % 7
         firstSunday.setDate(firstDayOfYear.getDate() + daysToFirstSunday)
+        
         const daysToAdd = (weekNum - 1) * 7
         const startDate = new Date(firstSunday)
         startDate.setDate(firstSunday.getDate() + daysToAdd)
+        
         const endDate = new Date(startDate)
         endDate.setDate(endDate.getDate() + 6)
+        
         finalDateFrom = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`
         finalDateTo = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`
       } else if (period === 'month' && selectedMonth) {
@@ -234,16 +244,6 @@ const targetDateStr = `${selectedDate.getFullYear()}-${String(selectedDate.getMo
         finalDateTo = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`
       }
 
-      console.log('🔥 DEBUG API CALL:', {
-        period,
-        selectedDate: targetDateStr,
-        dateFrom: finalDateFrom,
-        dateTo: finalDateTo,
-        team: selectedTeam
-      })
-
-      const objectif = getObjectif()
-      
       const params = new URLSearchParams({
         dateFrom: finalDateFrom,
         dateTo: finalDateTo,
@@ -260,23 +260,28 @@ const targetDateStr = `${selectedDate.getFullYear()}-${String(selectedDate.getMo
       
       const adjustedPerformance = (data.performanceByMember || []).map((p: PerformanceData) => ({
         ...p,
-        objectif: objectif
+        objectif: getObjectif()
       }))
       
       setPerformance(adjustedPerformance)
       setDailyData(data.dailyPerformance || [])
       
-      const hourlyData = calculateHourlyProjects(data.projects || [])
-      setHourlyProjects(hourlyData)
+      // ✅ Calculer les minutes par jour de la semaine
+      const dayOfWeekData = calculateMinutesByDayOfWeek(data.projects || [])
+      // ✅ Objectif quotidien fixe à 200 min pour le graphique d'évolution quotidienne
+const trendData = calculateDailyTrend(data.dailyPerformance || [], 200)
+      
+      setMinutesByDayOfWeek(dayOfWeekData)
+      setDailyTrend(trendData)
       
       setStats(data.stats || {})
       
       const totalMinutes = adjustedPerformance.reduce((sum: number, p: PerformanceData) => sum + p.totalMinutes, 0)
-      const pourcentage = Math.round((totalMinutes / objectif) * 100)
+      const pourcentage = Math.round((totalMinutes / getObjectif()) * 100)
       
       setTeamStats({
         totalMinutes,
-        objectif,
+        objectif: getObjectif(),
         pourcentage
       })
       
@@ -288,23 +293,40 @@ const targetDateStr = `${selectedDate.getFullYear()}-${String(selectedDate.getMo
     }
   }, [selectedDate, selectedWeek, selectedMonth, selectedYear, period, selectedTeam, selectedMember, getObjectif])
 
-  const calculateHourlyProjects = (projects: any[]): HourlyProjectData[] => {
-    const hourlyCount: HourlyProjectData[] = Array.from({ length: 24 }, (_, i) => ({
-      hour: `${i.toString().padStart(2, '0')}:00`,
-      count: 0
-    }))
+  const calculateMinutesByDayOfWeek = (projects: any[]): DayOfWeekData[] => {
+    const daysOfWeek: DayOfWeekData[] = [
+      { day: 'Lundi', dayShort: 'Lun', minutes: 0 },
+      { day: 'Mardi', dayShort: 'Mar', minutes: 0 },
+      { day: 'Mercredi', dayShort: 'Mer', minutes: 0 },
+      { day: 'Jeudi', dayShort: 'Jeu', minutes: 0 },
+      { day: 'Vendredi', dayShort: 'Ven', minutes: 0 },
+      { day: 'Samedi', dayShort: 'Sam', minutes: 0 },
+      { day: 'Dimanche', dayShort: 'Dim', minutes: 0 }
+    ]
 
     projects.forEach(project => {
-      if (project.writtenAt) {
-        const writtenDate = new Date(project.writtenAt)
-        const hour = writtenDate.getHours()
-        if (hour >= 0 && hour < 24) {
-          hourlyCount[hour].count++
+      const dateStr = project.isWritten ? project.writtenAt : project.mixedAt
+      if (dateStr) {
+        const projectDate = new Date(dateStr)
+        const dayOfWeek = projectDate.getDay()
+        const index = dayOfWeek === 0 ? 6 : dayOfWeek - 1
+        
+        if (index >= 0 && index < 7) {
+          daysOfWeek[index].minutes += project.durationMin || 0
         }
       }
     })
 
-    return hourlyCount
+    return daysOfWeek
+  }
+
+  const calculateDailyTrend = (dailyData: DailyData[], objectif: number): DailyTrendData[] => {
+    return dailyData.map(d => ({
+      date: d.date,
+      label: d.label,
+      minutes: Object.values(d.byMember).reduce((sum, member) => sum + member.minutes, 0),
+      objectif: objectif
+    }))
   }
 
   useEffect(() => {
@@ -322,14 +344,6 @@ const targetDateStr = `${selectedDate.getFullYear()}-${String(selectedDate.getMo
       projects: p.projectCount
     }))
   }, [performance])
-
-  const lineChartData = useMemo(() => {
-    return dailyData.map(d => ({
-      date: d.label,
-      minutes: d.minutes,
-      projets: d.projects
-    }))
-  }, [dailyData])
 
   const getHeatmapColor = (minutes: number) => {
     if (minutes === 0) return 'bg-slate-100'
@@ -373,9 +387,7 @@ const targetDateStr = `${selectedDate.getFullYear()}-${String(selectedDate.getMo
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    // ✅ APRÈS (date locale, sans décalage)
-const localDateStr = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDate.getDate()).padStart(2, '0')}`
-a.download = `rapport-${period}-${localDateStr}.html`
+    a.download = `rapport-${period}-${selectedDate.toISOString().split('T')[0]}.html`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
@@ -421,7 +433,7 @@ a.download = `rapport-${period}-${localDateStr}.html`
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="space-y-2">
                 <Label className="text-sm text-slate-600">Période</Label>
-                               <Select value={period} onValueChange={(v: PeriodType) => {
+                <Select value={period} onValueChange={(v: PeriodType) => {
                   setPeriod(v)
                   if (v === 'day') setSelectedDate(new Date())
                   else if (v === 'week') {
@@ -663,23 +675,22 @@ a.download = `rapport-${period}-${localDateStr}.html`
             </CardContent>
           </Card>
 
-          {/* Projets Rédaction Complétés par Heure */}
+          {/* Minutes par Jour de la Semaine */}
           <Card>
             <CardHeader>
               <CardTitle className="text-sm flex items-center gap-2">
-                <Clock className="w-4 h-4 text-indigo-600" />
-                Projets Rédaction Complétés par Heure
+                <Calendar className="w-4 h-4 text-indigo-600" />
+                Minutes par Jour de la Semaine
               </CardTitle>
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={hourlyProjects} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                <BarChart data={minutesByDayOfWeek} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                   <XAxis 
-                    dataKey="hour" 
+                    dataKey="dayShort" 
                     stroke="#64748b" 
-                    fontSize={10}
-                    interval={2}
+                    fontSize={12}
                   />
                   <YAxis stroke="#64748b" fontSize={12} />
                   <Tooltip 
@@ -689,15 +700,19 @@ a.download = `rapport-${period}-${localDateStr}.html`
                       borderRadius: '8px',
                       boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
                     }}
-                    formatter={(value: number) => [`${value} projet(s)`, 'Projets rédaction']}
+                    formatter={(value: number, name: string, props: any) => [
+                      `${Math.round(value as number)} min`,
+                      props.payload.day
+                    ]}
                   />
-                  <Bar dataKey="count" fill="#10b981" name="Projets" radius={[4, 4, 0, 0]}>
+                  <Bar dataKey="minutes" fill="#10b981" name="Minutes" radius={[4, 4, 0, 0]}>
                     <LabelList 
-                      dataKey="count" 
+                      dataKey="minutes" 
                       position="top" 
                       fill="#1e293b"
-                      fontSize={11}
+                      fontSize={12}
                       fontWeight="bold"
+                      formatter={(value: number) => `${Math.round(value)} min`}
                     />
                   </Bar>
                 </BarChart>
@@ -705,6 +720,57 @@ a.download = `rapport-${period}-${localDateStr}.html`
             </CardContent>
           </Card>
         </div>
+
+        {/* Évolution Quotidienne */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-indigo-600" />
+              Évolution Quotidienne - Objectif: {objectif} min
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={dailyTrend} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis 
+                  dataKey="label" 
+                  stroke="#64748b" 
+                  fontSize={12}
+                />
+                <YAxis stroke="#64748b" fontSize={12} />
+                <Tooltip 
+                  contentStyle={{ 
+                    backgroundColor: '#fff', 
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px',
+                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                  }}
+                  formatter={(value: number) => [`${Math.round(value)} min`, 'Minutes']}
+                />
+                <Legend />
+                <Line 
+                  type="monotone" 
+                  dataKey="minutes" 
+                  stroke="#4f46e5" 
+                  strokeWidth={3}
+                  dot={{ fill: '#4f46e5', r: 4 }}
+                  activeDot={{ r: 6 }}
+                  name="Minutes réalisées"
+                />
+                <Line 
+                  type="monotone" 
+                  dataKey="objectif" 
+                  stroke="#cbd5e1" 
+                  strokeWidth={2}
+                  strokeDasharray="5 5"
+                  dot={false}
+                  name="Objectif quotidien"
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
 
         {/* TABLEAU HEATMAP */}
         <Card>
@@ -815,7 +881,7 @@ a.download = `rapport-${period}-${localDateStr}.html`
               {performance.map(m => (
                 <tr key={m.userId} className="border-t hover:bg-slate-50">
                   <td className="py-3 px-4">
-                    {m.rang === 1 ? '🥇' : m.rang === 2 ? '🥈' : m.rang === 3 ? '' : m.rang}
+                    {m.rang === 1 ? '🥇' : m.rang === 2 ? '🥈' : m.rang === 3 ? '🥉' : m.rang}
                   </td>
                   <td className="py-3 px-4 font-medium">{m.name}</td>
                   <td className="py-3 px-4 text-center">
