@@ -20,7 +20,7 @@ Allow: /
  python convert_excel.py 
 cd C:\Users\User18\Desktop\VDM
 git add .
-git commit -m "feat: correction performance : projets manquants  "
+git commit -m "feat: page livraison : extraction + filtre  "
 git push origin main
 
  */}

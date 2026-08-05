@@ -14,9 +14,13 @@ import {
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import {
-  Package, CheckCircle2, AlertCircle, Clock, Calendar,
-  ArrowUp, ArrowDown, RefreshCw, Search, TrendingUp,
-  BarChart3, MessageSquare
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
+import { Calendar as CalendarComponent } from '@/components/ui/calendar'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import {
+  Package, CheckCircle2, AlertCircle, Clock, Calendar as CalendarIcon,
+  ArrowUp, ArrowDown, RefreshCw, Search, TrendingUp, BarChart3, MessageSquare, Download
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useDemoMode, DemoUser } from '@/hooks/useDemoMode'
@@ -37,7 +41,7 @@ interface Project {
   status: string | null
   mixStatus: string | null
   workflowStep: string | null
-  deliveryStatus: string | null  // ✅ NOUVEAU: CONFORME / NON_CONFORME
+  deliveryStatus: string | null
   redacteurId: string | null
   techSonId: string | null
   createdAt: string
@@ -45,8 +49,8 @@ interface Project {
   writtenAt: string | null
   mixedAt: string | null
   deliveredAt: string | null
-  redactionReturns: number | null  // ✅ NOUVEAU
-  mixageReturns: number | null      // ✅ NOUVEAU
+  redactionReturns: number | null
+  mixageReturns: number | null
   User: { id: string; name: string } | null
   User_1: { id: string; name: string } | null
 }
@@ -62,19 +66,12 @@ interface Stats {
 type FilterType = 'all' | 'conforme' | 'aLivr' | 'retours'
 type SortField = 'deadline' | 'mixedAt' | 'name' | 'durationMin'
 type SortOrder = 'asc' | 'desc'
+type TimeFilterType = 'all' | 'day' | 'week' | 'month'
 
 function displayDateLocal(dateString: string | null): string {
   if (!dateString) return '—'
   const date = new Date(dateString)
   return date.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: '2-digit' })
-}
-
-function displayDateTime(dateString: string | null): string {
-  if (!dateString) return '—'
-  const date = new Date(dateString)
-  return date.toLocaleDateString('fr-FR', { 
-    day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' 
-  })
 }
 
 // ─── Modal Signaler ────────────────────────────────────────
@@ -115,16 +112,7 @@ function SignalerModal({ project, onClose, onSignaler }: {
               <span className="text-slate-500">Projet:</span>
               <span className="font-medium">{project.name}</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-slate-500">Rédacteur:</span>
-              <span className="font-medium">{project.User?.name || '-'}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-500">Tech Son:</span>
-              <span className="font-medium">{project.User_1?.name || '-'}</span>
-            </div>
           </div>
-
           <div className="space-y-1.5">
             <Label>Retourner à *</Label>
             <select
@@ -135,13 +123,7 @@ function SignalerModal({ project, onClose, onSignaler }: {
               <option value="mixage">Studio (Mixage)</option>
               <option value="redaction">Rédaction</option>
             </select>
-            <p className="text-xs text-slate-500">
-              {returnType === 'mixage' 
-                ? 'Le projet retournera au tech son pour correction'
-                : 'Le projet retournera au rédacteur pour correction'}
-            </p>
           </div>
-
           <div className="space-y-1.5">
             <Label>Commentaire *</Label>
             <Textarea
@@ -185,39 +167,29 @@ function ProjectRow({ project, onConforme, onSignaler, onLivrer }: {
           <div className="text-xs text-slate-400 font-mono truncate">{project.projectCode}</div>
         )}
       </td>
-
       <td className="py-2.5 px-3">
-        <span className={`text-xs font-medium flex items-center gap-1 ${
-          isLate ? 'text-red-600' : isSoon ? 'text-orange-500' : 'text-slate-600'
-        }`}>
+        <span className={`text-xs font-medium flex items-center gap-1 ${isLate ? 'text-red-600' : isSoon ? 'text-orange-500' : 'text-slate-600'}`}>
           {(isLate || isSoon) && <AlertCircle className="w-3 h-3" />}
           {displayDateLocal(project.deadline)}
         </span>
-        {isLate && <div className="text-xs text-red-500">{Math.abs(daysLeft)}j retard</div>}
       </td>
-
       <td className="py-2.5 px-3 hidden md:table-cell">
         <div className="text-sm font-semibold text-indigo-600">
           {project.durationMin ? `${Math.round(project.durationMin)} min` : '—'}
         </div>
       </td>
-
       <td className="py-2.5 px-3 hidden lg:table-cell">
         <div className="text-xs text-slate-600">{displayDateLocal(project.writtenAt)}</div>
       </td>
-
       <td className="py-2.5 px-3 hidden lg:table-cell">
         <div className="text-xs text-slate-600">{displayDateLocal(project.mixedAt)}</div>
       </td>
-
       <td className="py-2.5 px-3 hidden xl:table-cell">
         <div className="text-xs text-slate-600">{project.User?.name || '—'}</div>
       </td>
-
       <td className="py-2.5 px-3 hidden xl:table-cell">
         <div className="text-xs text-slate-600">{project.User_1?.name || '—'}</div>
       </td>
-
       <td className="py-2.5 px-3 hidden sm:table-cell">
         {project.deliveredAt ? (
           <Badge className="bg-emerald-100 text-emerald-700 text-xs">FAIT</Badge>
@@ -225,56 +197,30 @@ function ProjectRow({ project, onConforme, onSignaler, onLivrer }: {
           <Badge className="bg-slate-100 text-slate-600 text-xs">PAS ENCORE</Badge>
         )}
       </td>
-
       <td className="py-2.5 px-3 hidden md:table-cell">
         <div className="text-xs text-slate-600">{displayDateLocal(project.deliveredAt)}</div>
       </td>
-
       <td className="py-2.5 px-3 hidden sm:table-cell text-center">
-        <span className={`text-xs font-semibold ${
-          (project.redactionReturns || 0) > 0 ? 'text-red-600' : 'text-slate-400'
-        }`}>
+        <span className={`text-xs font-semibold ${(project.redactionReturns || 0) > 0 ? 'text-red-600' : 'text-slate-400'}`}>
           {project.redactionReturns || 0}
         </span>
       </td>
-
       <td className="py-2.5 px-3 hidden sm:table-cell text-center">
-        <span className={`text-xs font-semibold ${
-          (project.mixageReturns || 0) > 0 ? 'text-amber-600' : 'text-slate-400'
-        }`}>
+        <span className={`text-xs font-semibold ${(project.mixageReturns || 0) > 0 ? 'text-amber-600' : 'text-slate-400'}`}>
           {project.mixageReturns || 0}
         </span>
       </td>
-
       <td className="py-2.5 px-3">
         <div className="flex items-center justify-end gap-1">
           {!project.deliveredAt && (
             <>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
-                onClick={() => onConforme(project.id)}
-                title="Marquer comme conforme"
-              >
+              <Button variant="ghost" size="sm" className="h-7 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50" onClick={() => onConforme(project.id)} title="Marquer comme conforme">
                 <CheckCircle2 className="w-3.5 h-3.5" />
               </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 text-amber-600 hover:text-amber-700 hover:bg-amber-50"
-                onClick={() => onSignaler(project)}
-                title="Signaler un problème"
-              >
+              <Button variant="ghost" size="sm" className="h-7 text-amber-600 hover:text-amber-700 hover:bg-amber-50" onClick={() => onSignaler(project)} title="Signaler un problème">
                 <AlertCircle className="w-3.5 h-3.5" />
               </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50"
-                onClick={() => onLivrer(project.id)}
-                title="Marquer comme livré"
-              >
+              <Button variant="ghost" size="sm" className="h-7 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50" onClick={() => onLivrer(project.id)} title="Marquer comme livré">
                 <Package className="w-3.5 h-3.5" />
               </Button>
             </>
@@ -290,19 +236,27 @@ function ProjectRow({ project, onConforme, onSignaler, onLivrer }: {
 
 // ─── Page Principale ───────────────────────────────────────
 export default function LivraisonPage() {
-  const {  data:session, status } = useSession()
+  const { data: session, status } = useSession()
   const { isDemo, demoUser } = useDemoMode()
   const router = useRouter()
 
   const [projects, setProjects] = useState<Project[]>([])
-  const [stats, setStats] = useState<Stats>({
-    total: 0, aLivr: 0, livres: 0, conformes: 0, retours: 0,
-  })
+  const [stats, setStats] = useState<Stats>({ total: 0, aLivr: 0, livres: 0, conformes: 0, retours: 0 })
   const [loading, setLoading] = useState(true)
+  
+  // Filtres de recherche et tri
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<FilterType>('all')
   const [sortField, setSortField] = useState<SortField>('deadline')
   const [sortOrder, setSortOrder] = useState<SortOrder>('asc')
+  
+  // ✅ NOUVEAU : Filtres temporels pour la livraison
+  const [timeFilter, setTimeFilter] = useState<TimeFilterType>('all')
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date())
+  const [selectedWeek, setSelectedWeek] = useState<string>('')
+  const [selectedMonth, setSelectedMonth] = useState<string>((new Date().getMonth() + 1).toString())
+  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear())
+  
   const [signalerProject, setSignalerProject] = useState<Project | null>(null)
 
   const user: DemoUser | null = (session?.user as DemoUser) || demoUser || null
@@ -315,13 +269,13 @@ export default function LivraisonPage() {
     if (status === 'authenticated' && !isAdmin && !isLivreur) {
       router.push('/dashboard')
     }
-  }, [status, isAdmin, isLivreur])
+  }, [status, isAdmin, isLivreur, router])
 
   const fetchData = useCallback(async () => {
     try {
       setLoading(true)
       const params = new URLSearchParams()
-      params.set('mixStatus', 'FAIT')  // ✅ Uniquement projets mixage terminé
+      params.set('mixStatus', 'FAIT')
       
       const res = await fetch(`/api/projects/livraison?${params.toString()}`)
       if (!res.ok) throw new Error()
@@ -329,16 +283,13 @@ export default function LivraisonPage() {
       
       setProjects(data.projects || [])
       
-      // Calculer stats
       const projectsList = data.projects || []
       const calculatedStats: Stats = {
         total: projectsList.length,
         aLivr: projectsList.filter((p: any) => !p.deliveredAt).length,
         livres: projectsList.filter((p: any) => p.deliveredAt).length,
         conformes: projectsList.filter((p: any) => p.deliveryStatus === 'CONFORME').length,
-        retours: projectsList.filter((p: any) => 
-          (p.redactionReturns || 0) > 0 || (p.mixageReturns || 0) > 0
-        ).length,
+        retours: projectsList.filter((p: any) => (p.redactionReturns || 0) > 0 || (p.mixageReturns || 0) > 0).length,
       }
       setStats(calculatedStats)
     } catch (e) {
@@ -351,17 +302,94 @@ export default function LivraisonPage() {
 
   useEffect(() => { if (user) fetchData() }, [user, fetchData])
 
-  // ✅ Action: Marquer comme conforme
+  // ✅ NOUVEAU : Calcul de la plage de dates pour le filtre temporel
+  const getDateRange = useCallback(() => {
+    let startDate = new Date(0)
+    let endDate = new Date(9999, 11, 31)
+
+    if (timeFilter === 'day' && selectedDate) {
+      startDate = new Date(selectedDate)
+      startDate.setHours(0, 0, 0, 0)
+      endDate = new Date(selectedDate)
+      endDate.setHours(23, 59, 59, 999)
+    } else if (timeFilter === 'week' && selectedWeek) {
+      const weekNum = parseInt(selectedWeek)
+      const firstDayOfYear = new Date(selectedYear, 0, 1)
+      const firstSunday = new Date(firstDayOfYear)
+      const daysToFirstSunday = (7 - firstDayOfYear.getDay()) % 7
+      firstSunday.setDate(firstDayOfYear.getDate() + daysToFirstSunday)
+      
+      startDate = new Date(firstSunday)
+      startDate.setDate(firstSunday.getDate() + (weekNum - 1) * 7)
+      startDate.setHours(0, 0, 0, 0)
+      
+      endDate = new Date(startDate)
+      endDate.setDate(endDate.getDate() + 6)
+      endDate.setHours(23, 59, 59, 999)
+    } else if (timeFilter === 'month' && selectedMonth) {
+      const month = parseInt(selectedMonth) - 1
+      startDate = new Date(selectedYear, month, 1)
+      startDate.setHours(0, 0, 0, 0)
+      endDate = new Date(selectedYear, month + 1, 0)
+      endDate.setHours(23, 59, 59, 999)
+    }
+    return { startDate, endDate }
+  }, [timeFilter, selectedDate, selectedWeek, selectedMonth, selectedYear])
+
+  // ✅ NOUVEAU : Fonction d'export CSV anonymisé pour le client
+  const handleExportCSV = () => {
+    // On ne garde que les projets LIVRÉS dans la période filtrée
+    const deliveredProjects = filtered.filter(p => p.deliveredAt)
+
+    if (deliveredProjects.length === 0) {
+      toast.error("Aucun projet livré dans cette période à exporter.")
+      return
+    }
+
+    // En-têtes CSV (Séparateur ';' pour compatibilité Excel FR)
+    const csvRows = [
+      ['Nom du Projet', 'Code Projet', 'Série', 'Saison', 'Épisode', 'Durée (min)', 'Date de Livraison', 'Statut Qualité'].join(';')
+    ]
+
+    deliveredProjects.forEach(p => {
+      const row = [
+        `"${p.name || 'Inconnu'}"`,
+        `"${p.projectCode || 'N/A'}"`,
+        `"${p.seriesName || 'N/A'}"`,
+        `"${p.season || 'N/A'}"`,
+        `"${p.episodeNumber || 'N/A'}"`,
+        p.durationMin ? Math.round(p.durationMin).toString() : '0',
+        `"${displayDateLocal(p.deliveredAt)}"`,
+        `"${p.deliveryStatus === 'CONFORME' ? 'Conforme' : 'Non vérifié'}"`
+        // ⚠️ INTENTIONNEL : Les champs User.name et User_1.name sont exclus pour l'anonymisation client
+      ]
+      csvRows.push(row.join(';'))
+    })
+
+    // Ajout du BOM (\uFEFF) pour qu'Excel reconnaisse l'UTF-8 correctement
+    const csvString = '\uFEFF' + csvRows.join('\n')
+    const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    
+    const periodLabel = timeFilter === 'day' ? 'Jour' : timeFilter === 'week' ? 'Semaine' : 'Mois'
+    link.setAttribute('download', `Rapport_Livraison_${periodLabel}_${new Date().toISOString().split('T')[0]}.csv`)
+    
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+    
+    toast.success('Rapport anonymisé téléchargé avec succès')
+  }
+
   const handleConforme = async (projectId: string) => {
     try {
       const res = await fetch('/api/projects/livraison', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          projectId, 
-          action: 'conforme',
-          deliveryStatus: 'CONFORME'
-        }),
+        body: JSON.stringify({ projectId, action: 'conforme', deliveryStatus: 'CONFORME' }),
       })
       if (!res.ok) throw new Error()
       toast.success('Projet marqué comme conforme')
@@ -371,18 +399,12 @@ export default function LivraisonPage() {
     }
   }
 
-  // ✅ Action: Signaler problème
   const handleSignaler = async (projectId: string, comment: string, returnType: 'redaction' | 'mixage') => {
     try {
       const res = await fetch('/api/projects/livraison', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          projectId, 
-          action: 'signaler',
-          comment,
-          returnType  // 'redaction' ou 'mixage'
-        }),
+        body: JSON.stringify({ projectId, action: 'signaler', comment, returnType }),
       })
       if (!res.ok) throw new Error()
       toast.success('Projet signalé et retourné')
@@ -392,17 +414,12 @@ export default function LivraisonPage() {
     }
   }
 
-  // ✅ Action: Livrer projet
   const handleLivrer = async (projectId: string) => {
     try {
       const res = await fetch('/api/projects/livraison', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          projectId, 
-          action: 'livrer',
-          deliveredAt: new Date().toISOString()
-        }),
+        body: JSON.stringify({ projectId, action: 'livrer', deliveredAt: new Date().toISOString() }),
       })
       if (!res.ok) throw new Error()
       toast.success('Projet livré')
@@ -412,20 +429,31 @@ export default function LivraisonPage() {
     }
   }
 
-  // Filtrage et tri
+  const { startDate, endDate } = getDateRange()
+
+  // Filtrage et tri combinés
   const filtered = projects
     .filter(p => {
-      if (!search) return true
-      const q = search.toLowerCase()
-      return p.name?.toLowerCase().includes(q) ||
-        p.seriesName?.toLowerCase().includes(q) ||
-        p.projectCode?.toLowerCase().includes(q)
-    })
-    .filter(p => {
-      if (filter === 'all') return true
-      if (filter === 'conforme') return p.deliveryStatus === 'CONFORME'
-      if (filter === 'aLivr') return !p.deliveredAt
-      if (filter === 'retours') return (p.redactionReturns || 0) > 0 || (p.mixageReturns || 0) > 0
+      // 1. Recherche textuelle
+      if (search) {
+        const q = search.toLowerCase()
+        if (!(p.name?.toLowerCase().includes(q) || p.seriesName?.toLowerCase().includes(q) || p.projectCode?.toLowerCase().includes(q))) {
+          return false
+        }
+      }
+      // 2. Filtre de statut
+      if (filter === 'conforme' && p.deliveryStatus !== 'CONFORME') return false
+      if (filter === 'aLivr' && p.deliveredAt) return false
+      if (filter === 'retours' && (p.redactionReturns || 0) === 0 && (p.mixageReturns || 0) === 0) return false
+
+      // 3. ✅ NOUVEAU : Filtre temporel sur la date de livraison (deliveredAt)
+      if (timeFilter !== 'all') {
+        if (!p.deliveredAt) return false // Exclut les projets non livrés du filtre temporel
+        const deliveredDate = new Date(p.deliveredAt)
+        if (deliveredDate < startDate || deliveredDate > endDate) {
+          return false
+        }
+      }
       return true
     })
     .sort((a, b) => {
@@ -453,7 +481,6 @@ export default function LivraisonPage() {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
@@ -473,96 +500,109 @@ export default function LivraisonPage() {
         {/* Stats */}
         <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-4">
           <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-xs text-slate-500 flex items-center gap-1">
-                <BarChart3 className="w-3 h-3" /> Total
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-slate-700">{stats.total}</div>
-            </CardContent>
+            <CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 flex items-center gap-1"><BarChart3 className="w-3 h-3" /> Total</CardTitle></CardHeader>
+            <CardContent><div className="text-2xl font-bold text-slate-700">{stats.total}</div></CardContent>
           </Card>
           <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-xs text-slate-500 flex items-center gap-1">
-                <Clock className="w-3 h-3" /> À livrer
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-blue-600">{stats.aLivr}</div>
-            </CardContent>
+            <CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 flex items-center gap-1"><Clock className="w-3 h-3" /> À livrer</CardTitle></CardHeader>
+            <CardContent><div className="text-2xl font-bold text-blue-600">{stats.aLivr}</div></CardContent>
           </Card>
           <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-xs text-slate-500 flex items-center gap-1">
-                <CheckCircle2 className="w-3 h-3" /> Livrés
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-emerald-600">{stats.livres}</div>
-            </CardContent>
+            <CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Livrés</CardTitle></CardHeader>
+            <CardContent><div className="text-2xl font-bold text-emerald-600">{stats.livres}</div></CardContent>
           </Card>
           <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-xs text-slate-500 flex items-center gap-1">
-                <CheckCircle2 className="w-3 h-3" /> Conformes
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-teal-600">{stats.conformes}</div>
-            </CardContent>
+            <CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Conformes</CardTitle></CardHeader>
+            <CardContent><div className="text-2xl font-bold text-teal-600">{stats.conformes}</div></CardContent>
           </Card>
           <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-xs text-slate-500 flex items-center gap-1">
-                <AlertCircle className="w-3 h-3" /> Retours
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-amber-600">{stats.retours}</div>
-            </CardContent>
+            <CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 flex items-center gap-1"><AlertCircle className="w-3 h-3" /> Retours</CardTitle></CardHeader>
+            <CardContent><div className="text-2xl font-bold text-amber-600">{stats.retours}</div></CardContent>
           </Card>
         </div>
 
-        {/* Filtres */}
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <Input 
-              placeholder="Rechercher (nom, série, code...)" 
-              value={search} 
-              onChange={e => setSearch(e.target.value)} 
-              className="pl-9 h-10" 
-            />
+        {/* ✅ NOUVEAU : Zone de filtres enrichie avec période et export */}
+        <div className="flex flex-col lg:flex-row gap-3 items-start lg:items-center justify-between">
+          <div className="flex flex-col sm:flex-row gap-3 flex-1 w-full">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <Input 
+                placeholder="Rechercher (nom, série, code...)" 
+                value={search} 
+                onChange={e => setSearch(e.target.value)} 
+                className="pl-9 h-10" 
+              />
+            </div>
+            
+            {/* Sélecteur de période */}
+            <Select value={timeFilter} onValueChange={(v) => setTimeFilter(v as TimeFilterType)}>
+              <SelectTrigger className="w-[150px] h-10">
+                <CalendarIcon className="w-4 h-4 mr-2" />
+                <SelectValue placeholder="Période" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Toutes dates</SelectItem>
+                <SelectItem value="day">Jour</SelectItem>
+                <SelectItem value="week">Semaine</SelectItem>
+                <SelectItem value="month">Mois</SelectItem>
+              </SelectContent>
+            </Select>
+
+            {/* Sélecteurs conditionnels de date */}
+            {timeFilter === 'day' && (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="h-10 justify-start text-left font-normal w-[160px]">
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {selectedDate ? selectedDate.toLocaleDateString('fr-FR') : 'Choisir une date'}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0">
+                  <CalendarComponent mode="single" selected={selectedDate} onSelect={setSelectedDate} initialFocus />
+                </PopoverContent>
+              </Popover>
+            )}
+
+            {timeFilter === 'week' && (
+              <Select value={selectedWeek} onValueChange={setSelectedWeek}>
+                <SelectTrigger className="w-[160px] h-10"><SelectValue placeholder="Semaine" /></SelectTrigger>
+                <SelectContent>
+                  {Array.from({ length: 53 }, (_, i) => (
+                    <SelectItem key={i + 1} value={(i + 1).toString()}>Semaine {i + 1}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+
+            {timeFilter === 'month' && (
+              <Select value={selectedMonth} onValueChange={setSelectedMonth}>
+                <SelectTrigger className="w-[160px] h-10"><SelectValue placeholder="Mois" /></SelectTrigger>
+                <SelectContent>
+                  {['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'].map((m, i) => (
+                    <SelectItem key={i + 1} value={(i + 1).toString()}>{m}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+
+            {/* Filtre statut */}
+            <select value={filter} onChange={e => setFilter(e.target.value as FilterType)} className="h-10 px-3 rounded-md border border-slate-300 text-sm">
+              <option value="all">Tous statuts</option>
+              <option value="conforme">Conformes</option>
+              <option value="aLivr">À livrer</option>
+              <option value="retours">Avec retours</option>
+            </select>
           </div>
-          <select
-            value={filter}
-            onChange={e => setFilter(e.target.value as FilterType)}
-            className="h-10 px-3 rounded-md border border-slate-300 text-sm"
-          >
-            <option value="all">Tous</option>
-            <option value="conforme">Conformes</option>
-            <option value="aLivr">À livrer</option>
-            <option value="retours">Avec retours</option>
-          </select>
-          <select
-            value={sortField}
-            onChange={e => setSortField(e.target.value as SortField)}
-            className="h-10 px-3 rounded-md border border-slate-300 text-sm"
-          >
-            <option value="deadline">Échéance</option>
-            <option value="mixedAt">Date mixage</option>
-            <option value="name">Nom</option>
-            <option value="durationMin">Durée</option>
-          </select>
-          <Button 
-            variant="outline" 
-            size="sm" 
-            onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
-            className="h-10 w-10 p-0"
-          >
-            {sortOrder === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />}
-          </Button>
+
+          <div className="flex gap-2 w-full sm:w-auto">
+            <Button variant="outline" size="sm" onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')} className="h-10 w-10 p-0 shrink-0">
+              {sortOrder === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />}
+            </Button>
+            {/* ✅ NOUVEAU : Bouton d'export */}
+            <Button onClick={handleExportCSV} className="h-10 gap-2 bg-indigo-600 hover:bg-indigo-700 shrink-0">
+              <Download className="w-4 h-4" /> Exporter (Anonymisé)
+            </Button>
+          </div>
         </div>
 
         {/* Table */}
@@ -621,4 +661,4 @@ export default function LivraisonPage() {
       </div>
     </DashboardLayout>
   )
-}
+} 
