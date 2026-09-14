@@ -37,6 +37,7 @@ interface Project {
   createdAt: string
   comment: string | null
   writtenAt: string | null
+  mixedAt: string | null
   deliveredAt: string | null
   User: { id: string; name: string } | null
   User_1: { id: string; name: string } | null
@@ -300,7 +301,7 @@ function EditProjectModal({ project, users, onClose, onSave, onDelete }: {
   project: Project | null
   users: { id: string; name: string; jobRole: string }[]
   onClose: () => void
-  onSave: (data: any) => Promise<void>
+  onSave: (data: any) => Promise<boolean>
   onDelete: () => Promise<void>
 }) {
   const [formData, setFormData] = useState<any>({})
@@ -328,6 +329,7 @@ function EditProjectModal({ project, users, onClose, onSave, onDelete }: {
         techSonId: project.techSonId || 'none',
         comment: project.comment || '',
         writtenAt: project.writtenAt?.split('T')[0] || '',
+        mixedAt: project.mixedAt?.split('T')[0] || '',
         deliveredAt: project.deliveredAt?.split('T')[0] || ''
       })
     }
@@ -342,9 +344,9 @@ function EditProjectModal({ project, users, onClose, onSave, onDelete }: {
     }
     
     setSaving(true)
-    await onSave(dataToSave)
+    const saved = await onSave(dataToSave)
     setSaving(false)
-    onClose()
+    if (saved) onClose()
   }
 
   const handleDelete = async () => {
@@ -396,7 +398,7 @@ function EditProjectModal({ project, users, onClose, onSave, onDelete }: {
                 />
               </div>
             </div>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="space-y-1.5">
                 <Label>Saison</Label>
                 <Input
@@ -502,6 +504,14 @@ function EditProjectModal({ project, users, onClose, onSave, onDelete }: {
                   type="date"
                   value={formData.writtenAt}
                   onChange={e => setFormData({ ...formData, writtenAt: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Date de mixage</Label>
+                <Input
+                  type="date"
+                  value={formData.mixedAt}
+                  onChange={e => setFormData({ ...formData, mixedAt: e.target.value })}
                 />
               </div>
               <div className="space-y-1.5">
@@ -695,12 +705,21 @@ export default function ProjectsDashboardPage() {
     fetchData()
   }, [status])
 
-  // Calculer les statistiques par WORKFLOW STEP
+   // Calculer les statistiques (CORRIGÉ)
   const { monthProjects, stats } = useMemo(() => {
+    // 1. Projets CRÉÉS ce mois-ci (pour la réception, les chaînes et l'affichage du tableau)
     const monthProjs = projects.filter(p => {
       const projectMonth = getMonthFromDate(p.createdAt)
       const projectYear = getYearFromDate(p.createdAt)
       return projectMonth === selectedMonth && projectYear === selectedYear
+    })
+
+    // 2. ✅ CORRECTION : Projets LIVRÉS ce mois-ci (peu importe quand ils ont été créés)
+    const deliveredThisMonth = projects.filter(p => {
+      if (!p.deliveredAt) return false
+      const deliveryMonth = getMonthFromDate(p.deliveredAt)
+      const deliveryYear = getYearFromDate(p.deliveredAt)
+      return deliveryMonth === selectedMonth && deliveryYear === selectedYear
     })
 
     const workflow: WorkflowStats = {
@@ -712,6 +731,7 @@ export default function ProjectsDashboardPage() {
     const chains: Record<string, { projects: number; minutes: number }> = {}
     let totalMinutes = 0
 
+    // Calcul Réception, Échéance et Chaînes (basé sur la création)
     monthProjs.forEach(project => {
       const duration = project.durationMin || 0
       totalMinutes += duration
@@ -723,18 +743,20 @@ export default function ProjectsDashboardPage() {
       chains[chain].projects += 1
       chains[chain].minutes += duration
 
-      if (project.workflowStep === 'REDACTION' || project.createdAt) {
-        workflow.reception.projects += 1
-        workflow.reception.minutes += duration
-      }
+      workflow.reception.projects += 1
+      workflow.reception.minutes += duration
+
       if (project.deadline) {
         workflow.echeance.projects += 1
         workflow.echeance.minutes += duration
       }
-      if (project.deliveredAt) {
-        workflow.livraison.projects += 1
-        workflow.livraison.minutes += duration
-      }
+    })
+
+    // ✅ Calcul Livraison (basé sur la date de livraison réelle, pas la création)
+    deliveredThisMonth.forEach(project => {
+      const duration = project.durationMin || 0
+      workflow.livraison.projects += 1
+      workflow.livraison.minutes += duration
     })
 
     const calculatedStats: MonthlyStats = {
@@ -782,7 +804,7 @@ export default function ProjectsDashboardPage() {
   }, [monthProjects, search, workflowFilter, sortField, sortOrder])
 
   // Sauvegarder les modifications
-  const handleSaveProject = async (data: any) => {
+  const handleSaveProject = async (data: any): Promise<boolean> => {
     try {
       const res = await fetch('/api/projects', {
         method: 'PUT',
@@ -798,8 +820,10 @@ export default function ProjectsDashboardPage() {
       const data2 = await res2.json()
       setProjects(data2.projects || [])
       setEditingProject(null)
+      return true
     } catch (e: any) {
       toast.error(`Erreur: ${e.message}`)
+      return false
     }
   }
 

@@ -104,6 +104,7 @@ export async function POST(request: Request) {
       id, name, seriesName, season, episodeNumber, broadcastChannel,
       projectCode, projectType, deadline, startDate, durationMin,
       pageCount, status, mixStatus, workflowStep, comment,
+      writtenAt, mixedAt, deliveredAt,
       redacteurId, techSonId
     } = body
 
@@ -127,6 +128,9 @@ export async function POST(request: Request) {
       mixStatus: mixStatus || 'PAS_ENCORE',
       workflowStep: workflowStep || 'DISPATCH',
       comment: comment || null,
+      writtenAt: writtenAt ? new Date(writtenAt).toISOString() : null,
+      mixedAt: mixedAt ? new Date(mixedAt).toISOString() : null,
+      deliveredAt: deliveredAt ? new Date(deliveredAt).toISOString() : null,
       redacteurId: redacteurId || null,
       techSonId: techSonId || null,
       updatedAt: new Date().toISOString(),
@@ -215,7 +219,8 @@ export async function DELETE(request: Request) {
     }
 
     const { searchParams } = new URL(request.url)
-    const id = searchParams.get('id')
+    const body = await request.json().catch(() => ({}))
+    const id = searchParams.get('id') || body.id
 
     if (!id) {
       return NextResponse.json({ error: 'Project ID required' }, { status: 400 })

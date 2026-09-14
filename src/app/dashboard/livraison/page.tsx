@@ -74,6 +74,14 @@ function displayDateLocal(dateString: string | null): string {
   return date.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: '2-digit' })
 }
 
+function getLocalDayRange(date: Date): { startDate: Date; endDate: Date } {
+  const startDate = new Date(date)
+  startDate.setHours(0, 0, 0, 0)
+  const endDate = new Date(date)
+  endDate.setHours(23, 59, 59, 999)
+  return { startDate, endDate }
+}
+
 // ─── Modal Signaler ────────────────────────────────────────
 function SignalerModal({ project, onClose, onSignaler }: {
   project: Project | null
@@ -252,7 +260,7 @@ export default function LivraisonPage() {
   
   // ✅ NOUVEAU : Filtres temporels pour la livraison
   const [timeFilter, setTimeFilter] = useState<TimeFilterType>('all')
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date())
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>()
   const [selectedWeek, setSelectedWeek] = useState<string>('')
   const [selectedMonth, setSelectedMonth] = useState<string>((new Date().getMonth() + 1).toString())
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear())
@@ -308,10 +316,9 @@ export default function LivraisonPage() {
     let endDate = new Date(9999, 11, 31)
 
     if (timeFilter === 'day' && selectedDate) {
-      startDate = new Date(selectedDate)
-      startDate.setHours(0, 0, 0, 0)
-      endDate = new Date(selectedDate)
-      endDate.setHours(23, 59, 59, 999)
+      const range = getLocalDayRange(selectedDate)
+      startDate = range.startDate
+      endDate = range.endDate
     } else if (timeFilter === 'week' && selectedWeek) {
       const weekNum = parseInt(selectedWeek)
       const firstDayOfYear = new Date(selectedYear, 0, 1)
@@ -542,7 +549,7 @@ export default function LivraisonPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Toutes dates</SelectItem>
-                <SelectItem value="day">Jour</SelectItem>
+                <SelectItem value="day">Date de livraison</SelectItem>
                 <SelectItem value="week">Semaine</SelectItem>
                 <SelectItem value="month">Mois</SelectItem>
               </SelectContent>
@@ -554,7 +561,7 @@ export default function LivraisonPage() {
                 <PopoverTrigger asChild>
                   <Button variant="outline" className="h-10 justify-start text-left font-normal w-[160px]">
                     <CalendarIcon className="mr-2 h-4 w-4" />
-                    {selectedDate ? selectedDate.toLocaleDateString('fr-FR') : 'Choisir une date'}
+                    {selectedDate ? selectedDate.toLocaleDateString('fr-FR') : 'Choisir une date de livraison'}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0">

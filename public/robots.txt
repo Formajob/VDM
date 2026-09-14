@@ -18,9 +18,10 @@ Allow: /
 
  {/* 
  python convert_excel.py 
+
 cd C:\Users\User18\Desktop\VDM
 git add .
-git commit -m "feat: page livraison : extraction + filtre  "
+git commit -m "feat: page livraison : filtres | page dashboard : modifier les infos projets  "
 git push origin main
 
  */}
