@@ -1,0 +1,5 @@
+ALTER TABLE "LeaveBalance"
+ADD COLUMN IF NOT EXISTS exceptionaldays numeric NOT NULL DEFAULT 5;
+
+ALTER TABLE "LeaveBalance"
+ADD COLUMN IF NOT EXISTS sickdays numeric NOT NULL DEFAULT 10;

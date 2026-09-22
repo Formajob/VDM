@@ -469,11 +469,9 @@ if (membersRes.ok) {
                 <Label>Raison (optionnel)</Label>
                 <Textarea value={leaveReason} onChange={(e) => setLeaveReason(e.target.value)} placeholder="Ex: Rendez-vous médical..." />
               </div>
-              {leaveType !== 'ANNUEL' && (
-                <div className="text-xs text-muted-foreground bg-slate-50 rounded px-3 py-2">
-                  ℹ️ Les congés {leaveType === 'EXCEPTIONNEL' ? 'exceptionnels' : leaveType === 'MALADIE' ? 'maladie' : 'autres'} ne déduisent pas de ton solde annuel.
-                </div>
-              )}
+              <div className="text-xs text-muted-foreground bg-slate-50 rounded px-3 py-2">
+                Le solde affiché est déduit à la validation de toute demande, uniquement pour les jours ouvrés.
+              </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setShowLeave(false)}>Annuler</Button>

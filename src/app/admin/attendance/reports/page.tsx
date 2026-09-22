@@ -12,7 +12,7 @@ import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
 import { 
   Download, Calendar, Users, TrendingUp, FileText, AlertCircle,
-  ChevronLeft, ChevronRight, Filter, BarChart3, Edit2, X
+  ChevronLeft, ChevronRight, Filter, BarChart3, Edit2, X, Eye
 } from 'lucide-react'
 import { useDemoMode, DemoUser } from '@/hooks/useDemoMode'
 import {
@@ -44,6 +44,30 @@ interface AttendanceRecord {
   lateMinutes?: number
 }
 
+interface PlanningDay {
+  startTime?: string
+  endTime?: string
+  shiftType?: 'NORMAL' | 'NIGHT' | 'OFF' | 'VAC' | 'MALADIE' | 'AUTRE'
+}
+
+interface PlanningRecord {
+  userid: string
+  weekstart: string
+  weekend: string
+  sunday?: PlanningDay | null
+  monday?: PlanningDay | null
+  tuesday?: PlanningDay | null
+  wednesday?: PlanningDay | null
+  thursday?: PlanningDay | null
+  friday?: PlanningDay | null
+  saturday?: PlanningDay | null
+}
+
+interface DayDetail {
+  records: AttendanceRecord[]
+  planned?: PlanningDay | null
+}
+
 interface EmployeeData {
   id: string
   name: string
@@ -51,6 +75,7 @@ interface EmployeeData {
   project: string
   dailyStatus: Map<string, string>
   dailyDuration: Map<string, number>
+  dailyDetails: Map<string, DayDetail>
 }
 
 interface EmployeeSummary {
@@ -76,6 +101,7 @@ const STATUS_OPTIONS = [
   { value: 'Absence', label: 'Absence', color: 'bg-red-100 text-red-700' },
   { value: 'VAC', label: 'Congé', color: 'bg-yellow-100 text-yellow-700' },
   { value: 'OFF', label: 'OFF', color: 'bg-orange-100 text-orange-700' },
+  { value: 'Maladie', label: 'Maladie', color: 'bg-red-100 text-red-700' },
   { value: 'Retard', label: 'Retard', color: 'bg-amber-100 text-amber-700' },
   { value: 'Départ anticipé', label: 'Départ anticipé', color: 'bg-purple-100 text-purple-700' },
   { value: 'Télétravail', label: 'Télétravail', color: 'bg-blue-100 text-blue-700' },
@@ -148,16 +174,11 @@ function EditAttendanceCellDialog({
   editData: EditCellData | null
   date: Date | null
 }) {
-  const [status, setStatus] = useState('')
-  const [duration, setDuration] = useState('')
+  const initialStatus = editData?.currentStatus || 'Présent'
+  const initialDuration = editData && editData.currentDuration > 0 ? editData.currentDuration.toString() : '8'
+  const [status, setStatus] = useState(initialStatus)
+  const [duration, setDuration] = useState(initialDuration)
   const [saving, setSaving] = useState(false)
-
-  useEffect(() => {
-    if (editData) {
-      setStatus(editData.currentStatus || 'Présent')
-      setDuration(editData.currentDuration > 0 ? editData.currentDuration.toString() : '8')
-    }
-  }, [editData])
 
   const handleSave = async () => {
     if (!status) {
@@ -236,6 +257,49 @@ function EditAttendanceCellDialog({
   )
 }
 
+function DayDetailsDialog({ open, onClose, date, details }: {
+  open: boolean
+  onClose: () => void
+  date: Date | null
+  details: DayDetail | null
+}) {
+  if (!date || !details) return null
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-[560px]">
+        <DialogHeader>
+          <DialogTitle>Détails du jour</DialogTitle>
+          <DialogDescription>{getDayName(date)} {formatDisplayDate(date)}</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3 py-2">
+          <div className="rounded-lg border bg-slate-50 p-3 text-sm">
+            <p><strong>Planning :</strong> {details.planned?.shiftType || (details.planned?.startTime ? 'NORMAL' : 'OFF')}</p>
+            {details.planned?.startTime && <p><strong>Horaires prévus :</strong> {details.planned.startTime} - {details.planned.endTime}</p>}
+          </div>
+          {details.records.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Aucun pointage enregistré.</p>
+          ) : (
+            <div className="max-h-64 overflow-y-auto rounded-lg border">
+              {details.records.map(record => (
+                <div key={record.id} className="flex items-center justify-between border-b px-3 py-2 text-sm last:border-b-0">
+                  <span>{record.status}</span>
+                  <span className="text-muted-foreground">
+                    {new Date(record.startedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                    {' - '}
+                    {record.endedAt ? new Date(record.endedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : 'en cours'}
+                    {' · '}{formatHours((record.durationMin || 0) / 60)}h
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 export default function AdminAttendanceReportsPage() {
   const { data: session, status } = useSession()
   const { isDemo, demoUser } = useDemoMode()
@@ -254,6 +318,9 @@ export default function AdminAttendanceReportsPage() {
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [currentEditCell, setCurrentEditCell] = useState<EditCellData | null>(null)
   const [currentEditDate, setCurrentEditDate] = useState<Date | null>(null)
+  const [detailsDialogOpen, setDetailsDialogOpen] = useState(false)
+  const [currentDetails, setCurrentDetails] = useState<DayDetail | null>(null)
+  const [currentDetailsDate, setCurrentDetailsDate] = useState<Date | null>(null)
 
   const { dates, startDate, endDate } = useMemo(() => 
     getPayrollPeriod(selectedMonth),
@@ -286,9 +353,29 @@ export default function AdminAttendanceReportsPage() {
           all: 'true',
         })
         
-        const attendanceRes = await fetch(`/api/attendance?${params}`, { credentials: 'include' })
+        const [attendanceRes, planningRes] = await Promise.all([
+          fetch(`/api/attendance?${params}`, { credentials: 'include' }),
+          fetch('/api/planning?all=true', { credentials: 'include' }),
+        ])
         if (!attendanceRes.ok) throw new Error('Failed to fetch attendance')
         const attendanceData: AttendanceRecord[] = await attendanceRes.json()
+        if (!planningRes.ok) throw new Error('Failed to fetch planning')
+        const planningData: PlanningRecord[] = await planningRes.json()
+
+        const planningMap = new Map<string, PlanningDay | null>()
+        planningData.forEach(planning => {
+          const current = new Date(`${planning.weekstart}T00:00:00`)
+          while (current <= new Date(`${planning.weekend}T00:00:00`)) {
+            planningMap.set(`${planning.userid}_${formatDateKey(current)}`, getPlanningDay(planning, current))
+            current.setDate(current.getDate() + 1)
+          }
+        })
+
+        const recordsMap = new Map<string, AttendanceRecord[]>()
+        attendanceData.forEach(record => {
+          const key = `${record.userId}_${record.startedAt.split('T')[0]}`
+          recordsMap.set(key, [...(recordsMap.get(key) || []), record])
+        })
         
         const employeeMap = new Map<string, EmployeeData>()
         
@@ -300,42 +387,37 @@ export default function AdminAttendanceReportsPage() {
             project: member.jobRole || 'VD',
             dailyStatus: new Map(),
             dailyDuration: new Map(),
+            dailyDetails: new Map(),
           })
         })
-        
-        attendanceData.forEach((record: AttendanceRecord) => {
-          const recordDate = new Date(record.startedAt + 'Z')
-          const date = [
-            recordDate.getFullYear(),
-            String(recordDate.getMonth() + 1).padStart(2, '0'),
-            String(recordDate.getDate()).padStart(2, '0')
-          ].join('-')
-          
-          const emp = employeeMap.get(record.userId)
-          if (!emp) return
-          
-          let status = 'Présent'
-          let duration = record.durationMin ? record.durationMin / 60 : 8
-          
-          if (record.status === 'ABSENT') {
-            status = 'Absence'
-            duration = 0
-          } else if (record.status === 'CONGE') {
-            status = 'VAC'
-            duration = 8
-          } else if (record.status === 'PAUSE' || record.status === 'LUNCH') {
-            return
-          } else if (record.isLate && record.lateMinutes && record.lateMinutes < 999) {
-            const hours = Math.floor(record.lateMinutes / 60)
-            const mins = record.lateMinutes % 60
-            status = `Retard ${hours}h${mins.toString().padStart(2, '0')}`
-          }
-          
-          const currentStatus = emp.dailyStatus.get(date)
-          if (!currentStatus || currentStatus === 'Présent') {
-            emp.dailyStatus.set(date, status)
-            emp.dailyDuration.set(date, duration)
-          }
+
+        membersOnly.forEach((member: any) => {
+          dates.forEach(dateObject => {
+            const date = formatDateKey(dateObject)
+            const key = `${member.id}_${date}`
+            const records = recordsMap.get(key) || []
+            const planned = planningMap.get(key)
+            const shiftRecord = records.find(record => record.status === 'SHIFT')
+            const durationMinutes = shiftRecord?.durationMin ?? records.reduce((total, record) => total + (record.durationMin || 0), 0)
+            const shiftType = planned?.shiftType
+            const forcedRecord = records.find(record => ['ABSENT', 'CONGE', 'MALADIE', 'OFF'].includes(record.status))
+            let cellStatus = ''
+
+            if (forcedRecord?.status === 'ABSENT') cellStatus = 'Absence'
+            else if (forcedRecord?.status === 'CONGE' || shiftType === 'VAC') cellStatus = 'VAC'
+            else if (forcedRecord?.status === 'MALADIE' || shiftType === 'MALADIE') cellStatus = 'Maladie'
+            else if (forcedRecord?.status === 'OFF' || shiftType === 'OFF' || (planned && !planned.startTime)) cellStatus = 'OFF'
+            else if (durationMinutes > 0) {
+              const lateRecord = records.find(record => record.isLate && (record.lateMinutes || 0) >= 5)
+              cellStatus = lateRecord ? `Retard ${lateRecord.lateMinutes} min` : 'Présent'
+            } else if (planned?.startTime) cellStatus = 'Absence'
+
+            const emp = employeeMap.get(member.id)
+            if (!emp) return
+            emp.dailyStatus.set(date, cellStatus)
+            emp.dailyDuration.set(date, durationMinutes / 60)
+            emp.dailyDetails.set(date, { records, planned })
+          })
         })
         
         setEmployeeData(Array.from(employeeMap.values()).sort((a, b) => a.name.localeCompare(b.name)))
@@ -374,12 +456,15 @@ export default function AdminAttendanceReportsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userId: currentEditCell.employeeId,
-          date: currentEditCell.date,
           status: status === 'Absence' ? 'ABSENT' : 
                   status === 'VAC' ? 'CONGE' : 
-                  status === 'Présent' ? 'PRESENT' : 'PRESENT',
+              status === 'Maladie' ? 'MALADIE' :
+              status === 'OFF' ? 'OFF' : 'EN_PRODUCTION',
           durationMin: duration * 60,
-          note: status
+            note: status,
+            fullDay: true,
+            forceStatus: true,
+            startedAt: currentEditCell.date
         }),
       })
       
@@ -406,6 +491,10 @@ export default function AdminAttendanceReportsPage() {
       console.error('Update error:', error)
       toast.error('Erreur lors de la mise à jour: ' + error.message)
     }
+  }
+
+  const handleDetailsClick = (employeeId: string, date: Date) => {
+    router.push(`/admin/attendance/history?date=${formatDateKey(date)}&userId=${encodeURIComponent(employeeId)}#visualisation-temporelle`)
   }
 
   const handlePreviousMonth = () => {
@@ -715,8 +804,11 @@ export default function AdminAttendanceReportsPage() {
                               <div className="flex flex-col items-center gap-1">
                                 <span className="font-medium">{status || '-'}</span>
                                 {status && duration > 0 && (
-                                  <span className="text-[10px] opacity-75">{duration}h</span>
+                                  <span className="text-[10px] opacity-75">{formatHours(duration)}h</span>
                                 )}
+                                <button type="button" className="rounded p-0.5 hover:bg-white/70" title="Afficher les détails temporels" onClick={(event) => { event.stopPropagation(); handleDetailsClick(emp.id, date) }}>
+                                  <Eye className="h-3 w-3" />
+                                </button>
                               </div>
                             </td>
                           )
@@ -783,6 +875,7 @@ export default function AdminAttendanceReportsPage() {
 
       {/* ✅ DIALOG D'ÉDITION */}
       <EditAttendanceCellDialog
+        key={currentEditCell ? `${currentEditCell.employeeId}-${currentEditCell.date}-${currentEditCell.currentStatus}` : 'empty'}
         open={editDialogOpen}
         onClose={() => setEditDialogOpen(false)}
         onSave={handleSaveCell}
@@ -791,4 +884,13 @@ export default function AdminAttendanceReportsPage() {
       />
     </DashboardLayout>
   )
+}
+
+function formatHours(hours: number): string {
+  return Number(hours.toFixed(1)).toString()
+}
+
+function getPlanningDay(planning: PlanningRecord, date: Date): PlanningDay | null {
+  const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const
+  return planning[dayNames[date.getDay()]] || null
 }

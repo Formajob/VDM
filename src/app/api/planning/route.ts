@@ -37,8 +37,9 @@ export async function GET(request: Request) {
       
       const { data: usersData, error: userError } = await supabaseAdmin
         .from('User')
-        .select('id, name, email, jobRole')
+        .select('id, name, email, jobRole, isActive')
         .in('id', userIds)
+        .eq('isActive', true)
       
       if (userError) {
         console.error('❌ User query error:', userError)
@@ -52,7 +53,7 @@ export async function GET(request: Request) {
       })
       console.log('🗺️ UserMap keys:', Array.from(userMap.keys()))
       
-      const enriched = data.map((p: any) => {
+      const enriched = data.filter((p: any) => userMap.has(p.userid)).map((p: any) => {
         const user = userMap.get(p.userid)
         console.log('📌 Planning for', p.userid, ':', user ? user.name : 'NOT FOUND')
         return {

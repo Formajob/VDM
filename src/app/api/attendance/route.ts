@@ -442,7 +442,7 @@ export async function POST(request: Request) {
         status: body.status,
         startedAt: `${date}T08:00:00`,
         endedAt: `${date}T17:00:00`,
-        durationMin: 540,
+        durationMin: typeof body.durationMin === 'number' ? body.durationMin : 540,
         note: body.note || `Statut forcé: ${body.status}`,
         isAdjusted: true,
         adjustedBy: (session.user as any)?.id,

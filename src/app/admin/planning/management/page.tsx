@@ -111,10 +111,10 @@ export default function AdminPlanningManagementPage() {
   }, [status, router, isDemo, isAdmin])
 
   const fetchMembers = useCallback(async () => {
-    const res = await fetch('/api/users')
+    const res = await fetch('/api/users?includeInactive=false')
     if (res.ok) {
       const users = await res.json()
-      const membersOnly = users.filter((u: any) => u.role === 'MEMBER')
+      const membersOnly = users.filter((u: any) => u.role === 'MEMBER' && u.isActive !== false)
       setMembers(membersOnly)
     }
   }, [])

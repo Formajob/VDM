@@ -258,10 +258,12 @@ export default function PerformanceDashboard() {
       const res = await fetch(`/api/projects/performance?${params.toString()}`)
       const data = await res.json()
       
-      const adjustedPerformance = (data.performanceByMember || []).map((p: PerformanceData) => ({
-        ...p,
-        objectif: getObjectif()
-      }))
+      const adjustedPerformance = (data.performanceByMember || [])
+        .filter((p: PerformanceData) => p.totalMinutes > 0)
+        .map((p: PerformanceData) => ({
+          ...p,
+          objectif: getObjectif()
+        }))
       
       setPerformance(adjustedPerformance)
       setDailyData(data.dailyPerformance || [])
@@ -274,7 +276,7 @@ const trendData = calculateDailyTrend(data.dailyPerformance || [], 200)
       setMinutesByDayOfWeek(dayOfWeekData)
       setDailyTrend(trendData)
       
-      setStats(data.stats || {})
+      setStats({ ...(data.stats || {}), memberCount: adjustedPerformance.length })
       
       const totalMinutes = adjustedPerformance.reduce((sum: number, p: PerformanceData) => sum + p.totalMinutes, 0)
       const pourcentage = Math.round((totalMinutes / getObjectif()) * 100)

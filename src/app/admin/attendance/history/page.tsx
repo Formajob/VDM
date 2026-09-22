@@ -354,8 +354,18 @@ export default function AdminAttendanceHistoryPage() {
 
   const [records, setRecords] = useState<AttendanceRecord[]>([])
   const [members, setMembers] = useState<{ id: string; name: string; jobRole: string }[]>([])
-  const [selectedMember, setSelectedMember] = useState<string>('all')
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date())
+  const [selectedMember, setSelectedMember] = useState<string>(() => {
+    if (typeof window === 'undefined') return 'all'
+    return new URLSearchParams(window.location.search).get('userId') || 'all'
+  })
+  const [selectedDate, setSelectedDate] = useState<Date>(() => {
+    if (typeof window === 'undefined') return new Date()
+    const dateParam = new URLSearchParams(window.location.search).get('date')
+    if (dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
+      return new Date(`${dateParam}T12:00:00`)
+    }
+    return new Date()
+  })
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [loading, setLoading] = useState(false)
@@ -776,7 +786,7 @@ export default function AdminAttendanceHistoryPage() {
         </Card>
 
         {dailyStats.length > 0 && (
-          <Card className="border-2 border-slate-200">
+          <Card id="visualisation-temporelle" className="border-2 border-slate-200">
             <CardHeader>
               <CardTitle className="text-base">Visualisation temporelle par jour</CardTitle>
             </CardHeader>
